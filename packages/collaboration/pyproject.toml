@@ -7,6 +7,7 @@ name = "alibabacloud-agentcore-collaboration"
 version = "0.1.0"
 description = "Independently versioned Worker collaboration for the AgentCore SDK"
 readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.10"
 dependencies = [
   "alibabacloud-agentcore-sdk>=0.1.0,<0.2.0",
