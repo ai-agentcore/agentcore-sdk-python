@@ -191,11 +191,20 @@ uvicorn examples.basic_agent:server --host 0.0.0.0 --port 8080
 
 默认接口为 `POST /ag-ui/agent` 和 `POST /openai/v1/chat/completions`，支持流式响应。参见 [最小服务示例](examples/basic_agent.py)。
 
+需要完整工具执行流程时，运行 [LangChain 服务示例](examples/langchain_server.py)：它将托管模型、MCP、Skill、框架事件转换器和两个协议入口串起来。此示例使用 Python 3.11+；安装 `alibabacloud-agentcore-sdk[mcp,server,langchain]` 后，在云端应用中执行：
+
+```bash
+uvicorn examples.langchain_server:server --host 0.0.0.0 --port 8080 --log-level info
+```
+
+示例使用 OpenAI/v1 模型连接，每次处理最新一条用户文本，不保存会话历史。AG-UI/OpenAI 请求及预期输出见 [调用 Agent 服务](examples/README.md#调用-agent-服务)。
+
 框架执行流应使用对应的[事件转换器](examples/frameworks/execution-events.md)，不要只提取文本。AG-UI 可表达消息边界、工具调用和工具结果；OpenAI Chat Completions 按其标准表达文本和工具调用，不提供独立的工具结果流式事件。会话历史的保存与恢复仍由应用或所用框架负责。
 
 ## 使用提示
 
 - 在应用生命周期内复用 Core；异步应用使用 `async with`，同步应用可使用 `with AgentCore.auto()`。
+- 普通同步调用和异步文本流见 [模型调用示例](examples/model_calls.py)；Responses 用法见 [示例指南](examples/README.md#模型调用方式)。
 - 模型的工具调用、Responses 和 Embedding 支持情况取决于所选模型。
 - 仅加载可信 Skill；不需要执行命令时设置 `ALLOW_EXECUTE_COMMAND=false`。
 - 使用 `logging.basicConfig(level=logging.INFO)` 开启日志，不要记录 API Key 等敏感信息。

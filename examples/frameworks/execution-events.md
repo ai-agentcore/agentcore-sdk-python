@@ -2,6 +2,8 @@
 
 资源适配（模型、工具、记忆）和执行事件适配是两个入口。向 Server 只返回字符串，只能得到文本；需要展示工具调用过程时，把框架的完整事件交给对应的 `AgentCoreConverter`。每次调用创建一个转换器，不跨请求共享。
 
+可直接运行的完整示例见 [LangChain Agent 服务](../langchain_server.py)，包含资源创建、生命周期和协议输出；启动及调用命令见 [示例指南](../README.md#调用-agent-服务)。
+
 ## LangChain / LangGraph
 
 ```python
@@ -17,7 +19,7 @@ async def invoke(request, context):
         yield event
 ```
 
-LangGraph 使用同一个转换器，也可从 `agentcore.integrations.langgraph` 导入。输入为 `astream_events(version="v2")`，不是 `astream(stream_mode="updates")`。调用参数在模型一轮完成后输出一次，工具结果使用 `ToolMessage.tool_call_id`，不是 callback 的 `run_id`。Python 3.10 的自定义异步图节点须向模型调用显式传递 `RunnableConfig`，确保框架传递 callbacks。
+LangGraph 使用同一个转换器，也可从 `agentcore.integrations.langgraph` 导入。输入为 `astream_events(version="v2")`，不是 `astream(stream_mode="updates")`。调用参数在模型一轮完成后输出一次，工具结果使用 `ToolMessage.tool_call_id`，不是 callback 的 `run_id`。Python 3.10 的自定义异步图节点须向模型调用显式传递 `RunnableConfig`，确保框架传递 callbacks。内置 `create_agent` 的完整服务示例要求 Python 3.11+，版本限制见 [示例指南](../README.md#选择示例)。
 
 ## 其他框架
 

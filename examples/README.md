@@ -30,6 +30,8 @@
 | [Memory 写入与检索](memory.py) | 无 | `python -m examples.memory` |
 | [自定义资源](direct_resources.py) | `mcp` | `python -m examples.direct_resources` |
 | [最小 Agent 服务](basic_agent.py) | `server` | `uvicorn examples.basic_agent:server --host 0.0.0.0 --port 8080` |
+| [LangChain 完整服务](langchain_server.py)（Python 3.11+） | `mcp,server,langchain` | `uvicorn examples.langchain_server:server --host 0.0.0.0 --port 8080 --log-level info` |
+| [模型同步调用与异步流](model_calls.py) | 无 | `python -m examples.model_calls` |
 | [LangChain](frameworks/langchain_agent.py) | `mcp,langchain` | `python -m examples.frameworks.langchain_agent` |
 | [LangGraph](frameworks/langgraph_agent.py) | `mcp,langgraph` | `python -m examples.frameworks.langgraph_agent` |
 | [AgentScope 2.x](frameworks/agentscope_agent.py) | `mcp,agentscope` | `python -m examples.frameworks.agentscope_agent` |
@@ -44,6 +46,26 @@ pip install "alibabacloud-agentcore-sdk[mcp,langchain]"
 ```
 
 AgentScope 2.x 需要 Python 3.11+。CrewAI 示例使用异步 `akickoff()`，以配合异步 MCP 工具。
+
+LangChain 完整服务示例也使用 Python 3.11+：当前验证的 LangChain 1.4.0 / LangGraph 1.2.11 在 Python 3.10 下运行内置 `create_agent` 时，嵌套模型调用未完整传递事件回调，工具虽执行成功但文本事件可能缺失。Python 3.10 仍可使用基础 SDK 和普通模型调用；不要将普通调用成功等同于完整事件流可用。
+
+## 模型调用方式
+
+[model_calls.py](model_calls.py) 演示同步 `AgentCore` 与异步 `AsyncAgentCore`，均使用 OpenAI/v1 托管模型。同步代码无需手动管理事件循环；异步服务直接使用异步入口。该示例会发起两次真实模型请求。
+
+在 `async with AsyncAgentCore.auto() as core` 内，支持 Responses 的模型还可以这样调用：
+
+```python
+model = await core.model("test-mc", model="qwen3.8-max")
+response = await model.responses("用一句话介绍杭州。")
+print(response["output"])
+
+async for event in model.responses_stream("用一句话介绍杭州。"):
+    if event["type"] == "response.output_text.delta":
+        print(event["delta"], end="", flush=True)
+```
+
+这些是两次独立请求，按需选择一种。Responses 是否可用由连接协议和实际模型决定，SDK 不会在失败后自动切换为 Chat。Embedding 需要使用支持向量生成的模型，不应直接用聊天模型替代。以上文本解析针对 OpenAI 格式，Anthropic 使用其原生响应结构。
 
 ## 自定义模型、MCP 和 Skill
 
@@ -86,11 +108,37 @@ skill = await core.skills.managed("test-skill", version="1.0.0")
 服务示例提供 AG-UI 和 OpenAI Chat Completions 接口。向已部署的应用发送请求：
 
 ```bash
-curl https://<agent-endpoint>/openai/v1/chat/completions \
+curl -N 'https://<agent-endpoint>/openai/v1/chat/completions' \
   -H 'Content-Type: application/json' \
   -d '{"model":"app","messages":[{"role":"user","content":"你好"}],"stream":true}'
 ```
 
 根据部署环境补充认证信息。示例固定使用代码中的模型连接；请求的 `model` 字段不会自动切换连接。AG-UI 接口为 `POST /ag-ui/agent`，健康检查为 `GET /healthz` 和 `GET /readyz`。
+
+AG-UI 请求示例（将 Endpoint 替换为实际地址）：
+
+```bash
+curl -N 'https://<agent-endpoint>/ag-ui/agent' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "threadId": "example-thread-1",
+    "runId": "example-run-1",
+    "messages": [
+      {"id": "message-1", "role": "user", "content": "加载可用 Skill，按其说明完成一个示范。"}
+    ],
+    "state": {},
+    "tools": [],
+    "context": [],
+    "forwardedProps": {}
+  }'
+```
+
+每次运行使用新的 `runId`；同一对话可复用 `threadId`，但它不会让服务自动保存历史。`tools: []` 不会禁用 Agent 代码中已经配置的 MCP/Skill 工具。
+
+使用 LangChain 完整服务时，正常输出以 `RUN_STARTED` 开始、`RUN_FINISHED` 结束。发生工具调用时，可看到独立文本消息的 START/CONTENT/END，以及 `TOOL_CALL_START/ARGS/END`、`TOOL_CALL_RESULT`；调用和结果由相同 `toolCallId` 关联。是否调用工具取决于模型和任务，不保证每个请求都有工具事件。运行失败会输出 `RUN_ERROR`。
+
+OpenAI 流式响应输出 `choices[].delta` 并以 `[DONE]` 结束；将 `stream` 改为 `false` 可获取单个 JSON 响应。它不输出独立工具结果，也不能保留多条 assistant 消息边界。模型和工具循环由此服务执行，客户端不要把返回的工具调用轨迹再次执行。
+
+最小服务示例是等待模型完成后返回文本，不是逐 token 生成示例。要观察完整流式执行过程，请使用 LangChain 完整服务。默认不开放浏览器跨域；若浏览器与服务跨域，由应用按实际来源配置 CORS。
 
 需要展示工具调用和工具结果时，使用[框架执行事件转换器](frameworks/execution-events.md)接入完整执行流。AG-UI 保留消息边界和工具结果；OpenAI Chat Completions 不表达完整执行轨迹。服务不会替应用保存会话历史，需要多轮对话时由应用或框架管理。
