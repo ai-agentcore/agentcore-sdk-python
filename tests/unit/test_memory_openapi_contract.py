@@ -6,8 +6,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pytest
-from alibabacloud_agentcore20260804.client import Client
-from alibabacloud_tea_openapi import models as openapi_models
 
 from agentcore.auth.resource_sts import ResourceCredential
 from agentcore.memory import AsyncMemoryStore, MemoryMessage, MemoryScope
@@ -21,16 +19,8 @@ class WireCall:
     runtime: dict[str, Any]
 
 
-class CapturingGeneratedClient(Client):
+class CapturingOpenAPIClient:
     def __init__(self) -> None:
-        super().__init__(
-            openapi_models.Config(
-                access_key_id="wire-ak",
-                access_key_secret="wire-sk",
-                security_token="wire-token",
-                region_id="cn-hangzhou",
-            )
-        )
         self.calls: list[WireCall] = []
 
     async def call_api_async(self, params: Any, request: Any, runtime: Any) -> Any:
@@ -81,8 +71,8 @@ def _memory_map(memory_id: str, text: str) -> dict[str, Any]:
 
 
 @pytest.mark.asyncio
-async def test_public_calls_reach_exact_generated_action_method_path_query_and_body() -> None:
-    generated = CapturingGeneratedClient()
+async def test_public_calls_need_only_common_request_with_exact_wire_contract() -> None:
+    client = CapturingOpenAPIClient()
     sts = WireSTS()
     runtime = _MemoryRuntime(
         workspace_id="workspace-runtime",
@@ -97,7 +87,7 @@ async def test_public_calls_reach_exact_generated_action_method_path_query_and_b
     store = AsyncMemoryStore(
         "customer_memory",
         _runtime_provider=runtime_provider,
-        _client_factory=lambda resolved, credential: generated,
+        _client_factory=lambda resolved, credential: client,
     )
     scope = MemoryScope(agent_id="agent-1", session_id="session-1", user_id="user-1")
 
@@ -150,7 +140,7 @@ async def test_public_calls_reach_exact_generated_action_method_path_query_and_b
 
     actual_routes = [
         (call.params["action"], call.params["method"], call.params["pathname"])
-        for call in generated.calls
+        for call in client.calls
     ]
     assert actual_routes == [
         (
@@ -195,7 +185,7 @@ async def test_public_calls_reach_exact_generated_action_method_path_query_and_b
         ),
     ]
 
-    add_body = json.loads(generated.calls[0].request["body"]["body"])
+    add_body = json.loads(client.calls[0].request["body"]["body"])
     assert add_body == {
         "messages": [
             {
@@ -210,7 +200,7 @@ async def test_public_calls_reach_exact_generated_action_method_path_query_and_b
             "userId": "user-1",
         },
     }
-    search_body = json.loads(generated.calls[1].request["body"]["body"])
+    search_body = json.loads(client.calls[1].request["body"]["body"])
     assert search_body == {
         "enableRerank": False,
         "metadata": {"kind": "dialogue"},
@@ -220,37 +210,36 @@ async def test_public_calls_reach_exact_generated_action_method_path_query_and_b
         "scope": {"sessionId": "session-1", "userId": "user-1"},
         "topK": 5,
     }
-    assert generated.calls[2].request["query"] == {
+    assert client.calls[2].request["query"] == {
         "agentId": "agent-1",
         "maxResults": "10",
         "nextToken": "memory-token",
         "sessionId": "session-1",
         "userId": "user-1",
     }
-    assert generated.calls[3].request == {"headers": {}}
-    update_body = json.loads(generated.calls[4].request["body"]["body"])
+    assert client.calls[3].request == {"headers": {}}
+    update_body = json.loads(client.calls[4].request["body"]["body"])
     assert update_body == {"metadata": {"kind": "updated"}, "text": "new text"}
-    assert generated.calls[5].request == {"headers": {}}
-    assert generated.calls[6].request["query"] == {
+    assert client.calls[5].request == {"headers": {}}
+    assert client.calls[6].request["query"] == {
         "agentId": "agent-1",
         "maxResults": "20",
         "nextToken": "session-token",
         "userId": "user-1",
     }
-    assert generated.calls[7].request["query"] == {
+    assert client.calls[7].request["query"] == {
         "agentId": "agent-1",
         "maxResults": "30",
         "nextToken": "message-token",
         "sessionId": "session-1",
         "userId": "user-1",
     }
-    assert generated.calls[0].runtime == {
+    assert client.calls[0].runtime == {
         "autoretry": False,
         "max_attempts": 1,
         "readTimeout": 120_000,
     }
     assert all(
-        call.runtime == {"autoretry": False, "max_attempts": 1}
-        for call in generated.calls[1:]
+        call.runtime == {"autoretry": False, "max_attempts": 1} for call in client.calls[1:]
     )
     assert sts.purposes == ["highcode_sdk"] * 8

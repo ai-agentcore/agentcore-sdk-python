@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, NoReturn, Protocol, TypeGuard
+from urllib.parse import quote
 
-from alibabacloud_agentcore20260804 import models
 from alibabacloud_agentcore20260804.client import Client
 from alibabacloud_tea_openapi import models as openapi_models
+from alibabacloud_tea_openapi import utils_models as openapi_utils
 from alibabacloud_tea_util.models import RuntimeOptions  # type: ignore[import-untyped]
 
 from agentcore.auth.access_key import AccessKeyCredential
@@ -59,7 +61,7 @@ class _ErrorDetails:
 _RuntimeProvider = Callable[[], Awaitable[_MemoryRuntime]]
 _MemoryCredential = AccessKeyCredential | ResourceCredential
 _ClientFactory = Callable[[_MemoryRuntime, _MemoryCredential], Any]
-_GeneratedCall = Callable[[], Awaitable[Any]]
+_OpenAPICall = Callable[[], Awaitable[Any]]
 
 
 class _MemoryTransport:
@@ -82,43 +84,20 @@ class _MemoryTransport:
         messages: Sequence[MemoryMessage] | None,
         metadata: Mapping[str, str] | None,
     ) -> AddMemoriesResult:
-        runtime, client = await self._request_client()
-        generated_scope = (
-            models.AddMemoriesRequestBodyScope(
-                agent_id=scope.agent_id,
-                session_id=scope.session_id,
-                user_id=scope.user_id,
-            )
-            if scope is not None
-            else None
-        )
-        request = models.AddMemoriesRequest(
-            body=models.AddMemoriesRequestBody(
-                scope=generated_scope,
-                text=text,
-                messages=(
-                    [
-                        models.AddMemoriesRequestBodyMessages(
-                            role=message.role,
-                            content=message.content,
-                        )
-                        for message in messages
-                    ]
+        response = await self._request(
+            "AddMemories",
+            "POST",
+            "/memories",
+            body={
+                "scope": _scope_body(scope),
+                "text": text,
+                "messages": (
+                    [{"role": m.role, "content": m.content} for m in messages]
                     if messages is not None
                     else None
                 ),
-                metadata=dict(metadata) if metadata is not None else None,
-            )
-        )
-        response = await self._invoke(
-            "AddMemories",
-            lambda: client.add_memories_with_options_async(
-                runtime.workspace_id,
-                self._memory_store_name,
-                request,
-                {},
-                _runtime_options(add=True),
-            ),
+                "metadata": dict(metadata) if metadata is not None else None,
+            },
             add=True,
         )
         body, details = self._success_body(response, "AddMemories", add=True)
@@ -151,36 +130,19 @@ class _MemoryTransport:
         min_similarity: float | None,
         min_score: float | None,
     ) -> SearchMemoriesResult:
-        runtime, client = await self._request_client()
-        generated_scope = (
-            models.SearchMemoriesRequestBodyScope(
-                agent_id=scope.agent_id,
-                session_id=scope.session_id,
-                user_id=scope.user_id,
-            )
-            if scope is not None
-            else None
-        )
-        request = models.SearchMemoriesRequest(
-            body=models.SearchMemoriesRequestBody(
-                query=query,
-                scope=generated_scope,
-                top_k=top_k,
-                metadata=dict(metadata) if metadata is not None else None,
-                enable_rerank=enable_rerank,
-                min_similarity=min_similarity,
-                min_score=min_score,
-            )
-        )
-        response = await self._invoke(
+        response = await self._request(
             "SearchMemories",
-            lambda: client.search_memories_with_options_async(
-                runtime.workspace_id,
-                self._memory_store_name,
-                request,
-                {},
-                _runtime_options(),
-            ),
+            "POST",
+            "/memories/search",
+            body={
+                "query": query,
+                "scope": _scope_body(scope),
+                "topK": top_k,
+                "metadata": dict(metadata) if metadata is not None else None,
+                "enableRerank": enable_rerank,
+                "minSimilarity": min_similarity,
+                "minScore": min_score,
+            },
         )
         body, _ = self._success_body(response, "SearchMemories")
         data = _field(body, "data")
@@ -196,9 +158,7 @@ class _MemoryTransport:
                 self._contract("SearchMemories", "data.memories[].score must be a number")
             similarity = _field(item, "similarity")
             if isinstance(similarity, bool) or not isinstance(similarity, (int, float)):
-                self._contract(
-                    "SearchMemories", "data.memories[].similarity must be a number"
-                )
+                self._contract("SearchMemories", "data.memories[].similarity must be a number")
             hits.append(
                 MemorySearchHit(
                     memory=self._memory(
@@ -221,23 +181,17 @@ class _MemoryTransport:
         max_results: int | None,
         next_token: str | None,
     ) -> Page[Memory]:
-        runtime, client = await self._request_client()
-        request = models.ListMemoriesRequest(
-            agent_id=agent_id,
-            session_id=session_id,
-            user_id=user_id,
-            max_results=max_results,
-            next_token=next_token,
-        )
-        response = await self._invoke(
+        response = await self._request(
             "ListMemories",
-            lambda: client.list_memories_with_options_async(
-                runtime.workspace_id,
-                self._memory_store_name,
-                request,
-                {},
-                _runtime_options(),
-            ),
+            "GET",
+            "/memories",
+            query={
+                "agentId": agent_id,
+                "sessionId": session_id,
+                "userId": user_id,
+                "maxResults": max_results,
+                "nextToken": next_token,
+            },
         )
         body, _ = self._success_body(response, "ListMemories")
         return self._page(
@@ -247,17 +201,10 @@ class _MemoryTransport:
         )
 
     async def get_memory(self, memory_id: str) -> Memory:
-        runtime, client = await self._request_client()
-        response = await self._invoke(
+        response = await self._request(
             "GetMemory",
-            lambda: client.get_memory_with_options_async(
-                runtime.workspace_id,
-                self._memory_store_name,
-                memory_id,
-                models.GetMemoryRequest(),
-                {},
-                _runtime_options(),
-            ),
+            "GET",
+            f"/memories/{quote(memory_id, safe='')}",
             memory_id=memory_id,
         )
         body, _ = self._success_body(response, "GetMemory", memory_id=memory_id)
@@ -270,40 +217,21 @@ class _MemoryTransport:
         text: str | None,
         metadata: Mapping[str, str] | None,
     ) -> Memory:
-        runtime, client = await self._request_client()
-        request = models.UpdateMemoryRequest(
-            body=models.UpdateMemoryRequestBody(
-                text=text,
-                metadata=dict(metadata) if metadata is not None else None,
-            )
-        )
-        response = await self._invoke(
+        response = await self._request(
             "UpdateMemory",
-            lambda: client.update_memory_with_options_async(
-                runtime.workspace_id,
-                self._memory_store_name,
-                memory_id,
-                request,
-                {},
-                _runtime_options(),
-            ),
+            "PUT",
+            f"/memories/{quote(memory_id, safe='')}",
+            body={"text": text, "metadata": dict(metadata) if metadata is not None else None},
             memory_id=memory_id,
         )
         body, _ = self._success_body(response, "UpdateMemory", memory_id=memory_id)
         return self._memory(_field(body, "data"), "UpdateMemory", "data", memory_id)
 
     async def delete_memory(self, memory_id: str) -> None:
-        runtime, client = await self._request_client()
-        response = await self._invoke(
+        response = await self._request(
             "DeleteMemory",
-            lambda: client.delete_memory_with_options_async(
-                runtime.workspace_id,
-                self._memory_store_name,
-                memory_id,
-                models.DeleteMemoryRequest(),
-                {},
-                _runtime_options(),
-            ),
+            "DELETE",
+            f"/memories/{quote(memory_id, safe='')}",
             memory_id=memory_id,
         )
         self._success_body(response, "DeleteMemory", memory_id=memory_id)
@@ -316,22 +244,16 @@ class _MemoryTransport:
         max_results: int | None,
         next_token: str | None,
     ) -> Page[MemorySession]:
-        runtime, client = await self._request_client()
-        request = models.ListMemorySessionsRequest(
-            agent_id=agent_id,
-            user_id=user_id,
-            max_results=max_results,
-            next_token=next_token,
-        )
-        response = await self._invoke(
+        response = await self._request(
             "ListMemorySessions",
-            lambda: client.list_memory_sessions_with_options_async(
-                runtime.workspace_id,
-                self._memory_store_name,
-                request,
-                {},
-                _runtime_options(),
-            ),
+            "GET",
+            "/sessions",
+            query={
+                "agentId": agent_id,
+                "userId": user_id,
+                "maxResults": max_results,
+                "nextToken": next_token,
+            },
         )
         body, _ = self._success_body(response, "ListMemorySessions")
         return self._page(body, "ListMemorySessions", self._memory_session)
@@ -345,26 +267,63 @@ class _MemoryTransport:
         max_results: int | None,
         next_token: str | None,
     ) -> Page[MemoryMessage]:
-        runtime, client = await self._request_client()
-        request = models.ListMemorySessionMessagesRequest(
-            agent_id=agent_id,
-            max_results=max_results,
-            next_token=next_token,
-            session_id=session_id,
-            user_id=user_id,
-        )
-        response = await self._invoke(
+        response = await self._request(
             "ListMemorySessionMessages",
-            lambda: client.list_memory_session_messages_with_options_async(
-                runtime.workspace_id,
-                self._memory_store_name,
-                request,
-                {},
-                _runtime_options(),
-            ),
+            "GET",
+            "/messages",
+            query={
+                "agentId": agent_id,
+                "userId": user_id,
+                "sessionId": session_id,
+                "maxResults": max_results,
+                "nextToken": next_token,
+            },
         )
         body, _ = self._success_body(response, "ListMemorySessionMessages")
         return self._page(body, "ListMemorySessionMessages", self._memory_message)
+
+    async def _request(
+        self,
+        operation: str,
+        method: str,
+        path: str,
+        *,
+        body: Mapping[str, Any] | None = None,
+        query: Mapping[str, Any] | None = None,
+        add: bool = False,
+        memory_id: str | None = None,
+    ) -> Any:
+        runtime, client = await self._request_client()
+        params = openapi_utils.Params(
+            action=operation,
+            version="2026-08-04",
+            protocol="HTTPS",
+            pathname=(
+                f"/workspaces/{quote(runtime.workspace_id, safe='')}"
+                f"/memorystores/{quote(self._memory_store_name, safe='')}{path}"
+            ),
+            method=method,
+            auth_type="AK",
+            style="ROA",
+            req_body_type="formData" if body is not None else "json",
+            body_type="json",
+        )
+        # Match the OpenAPI contract: a form field named body contains JSON.
+        request = openapi_utils.OpenApiRequest(
+            headers={},
+            body={"body": json.dumps(_without_none(body))} if body is not None else None,
+            query=(
+                {key: str(value) for key, value in query.items() if value is not None}
+                if query is not None
+                else None
+            ),
+        )
+        return await self._invoke(
+            operation,
+            lambda: client.call_api_async(params, request, _runtime_options(add=add)),
+            add=add,
+            memory_id=memory_id,
+        )
 
     async def _request_client(self) -> tuple[_MemoryRuntime, Any]:
         runtime = await self._runtime_provider()
@@ -382,7 +341,7 @@ class _MemoryTransport:
     async def _invoke(
         self,
         operation: str,
-        call: _GeneratedCall,
+        call: _OpenAPICall,
         *,
         add: bool = False,
         memory_id: str | None = None,
@@ -395,9 +354,7 @@ class _MemoryTransport:
         except Exception as exc:
             details = _exception_details(exc)
             failure_type = type(exc).__name__
-            if add and (
-                details.http_status_code is None or details.http_status_code >= 500
-            ):
+            if add and (details.http_status_code is None or details.http_status_code >= 500):
                 failure = AddMemoriesOutcomeUnknownError(
                     operation,
                     service_code=details.service_code,
@@ -742,8 +699,21 @@ def _runtime_options(*, add: bool = False) -> RuntimeOptions:
 
 def _field(value: Any, name: str) -> Any:
     if isinstance(value, Mapping):
-        return value.get(name)
+        head, *tail = name.split("_")
+        return value.get(head + "".join(part.title() for part in tail))
     return getattr(value, name, None)
+
+
+def _without_none(value: Mapping[str, Any]) -> dict[str, Any]:
+    return {key: item for key, item in value.items() if item is not None}
+
+
+def _scope_body(scope: MemoryScope | None) -> dict[str, Any] | None:
+    if scope is None:
+        return None
+    return _without_none(
+        {"agentId": scope.agent_id, "sessionId": scope.session_id, "userId": scope.user_id}
+    )
 
 
 def _is_sequence(value: Any) -> bool:

@@ -9,7 +9,6 @@ from typing import Any
 
 import anyio
 import pytest
-from alibabacloud_agentcore20260804 import models
 
 import agentcore.client as client_module
 import agentcore.memory as memory_api
@@ -46,117 +45,20 @@ class IntegrationClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
 
-    async def _record(self, operation: str, response: Any, *args: Any) -> Any:
-        self.calls.append((operation, args))
-        return response
-
-    async def add_memories_with_options_async(self, *args: Any) -> Any:
-        return await self._record(
-            "AddMemories",
-            models.AddMemoriesResponse(
-                status_code=200,
-                body=models.AddMemoriesResponseBody(
-                    success=True,
-                    data=models.AddMemoriesResponseBodyData(memories=[]),
-                ),
-            ),
-            *args,
-        )
-
-    async def search_memories_with_options_async(self, *args: Any) -> Any:
-        return await self._record(
-            "SearchMemories",
-            models.SearchMemoriesResponse(
-                status_code=200,
-                body=models.SearchMemoriesResponseBody(
-                    success=True,
-                    data=models.SearchMemoriesResponseBodyData(memories=[]),
-                ),
-            ),
-            *args,
-        )
-
-    async def list_memories_with_options_async(self, *args: Any) -> Any:
-        return await self._record(
-            "ListMemories",
-            models.ListMemoriesResponse(
-                status_code=200,
-                body=models.ListMemoriesResponseBody(success=True, items=[]),
-            ),
-            *args,
-        )
-
-    async def get_memory_with_options_async(self, *args: Any) -> Any:
-        return await self._record("GetMemory", _get_response("memory-get"), *args)
-
-    async def update_memory_with_options_async(self, *args: Any) -> Any:
-        return await self._record("UpdateMemory", _update_response("memory-update"), *args)
-
-    async def delete_memory_with_options_async(self, *args: Any) -> Any:
-        return await self._record(
-            "DeleteMemory",
-            models.DeleteMemoryResponse(
-                status_code=200,
-                body=models.DeleteMemoryResponseBody(success=True),
-            ),
-            *args,
-        )
-
-    async def list_memory_sessions_with_options_async(self, *args: Any) -> Any:
-        return await self._record(
-            "ListMemorySessions",
-            models.ListMemorySessionsResponse(
-                status_code=200,
-                body=models.ListMemorySessionsResponseBody(success=True, items=[]),
-            ),
-            *args,
-        )
-
-    async def list_memory_session_messages_with_options_async(self, *args: Any) -> Any:
-        return await self._record(
-            "ListMemorySessionMessages",
-            models.ListMemorySessionMessagesResponse(
-                status_code=200,
-                body=models.ListMemorySessionMessagesResponseBody(success=True, items=[]),
-            ),
-            *args,
-        )
-
-
-def _get_response(memory_id: str) -> models.GetMemoryResponse:
-    return models.GetMemoryResponse(
-        status_code=200,
-        body=models.GetMemoryResponseBody(
-            success=True,
-            data=models.GetMemoryResponseBodyData(
-                memory_id=memory_id,
-                content=models.GetMemoryResponseBodyDataContent(text="stored text"),
-                scope=models.GetMemoryResponseBodyDataScope(
-                    agent_id="agent-1",
-                    session_id="session-1",
-                    user_id="user-1",
-                ),
-            ),
-        ),
-    )
-
-
-def _update_response(memory_id: str) -> models.UpdateMemoryResponse:
-    return models.UpdateMemoryResponse(
-        status_code=200,
-        body=models.UpdateMemoryResponseBody(
-            success=True,
-            data=models.UpdateMemoryResponseBodyData(
-                memory_id=memory_id,
-                content=models.UpdateMemoryResponseBodyDataContent(text="updated text"),
-                scope=models.UpdateMemoryResponseBodyDataScope(
-                    agent_id="agent-1",
-                    session_id="session-1",
-                    user_id="user-1",
-                ),
-            ),
-        ),
-    )
+    async def call_api_async(self, params: Any, request: Any, runtime: Any) -> Any:
+        self.calls.append((params.action, (params, request, runtime)))
+        body: dict[str, Any] = {"success": True}
+        if params.action in {"AddMemories", "SearchMemories"}:
+            body["data"] = {"memories": []}
+        elif params.action in {"ListMemories", "ListMemorySessions", "ListMemorySessionMessages"}:
+            body["items"] = []
+        elif params.action in {"GetMemory", "UpdateMemory"}:
+            body["data"] = {
+                "memoryId": "memory-get" if params.action == "GetMemory" else "memory-update",
+                "content": {"text": "stored text"},
+                "scope": {"agentId": "agent-1", "sessionId": "session-1", "userId": "user-1"},
+            }
+        return {"statusCode": 200, "body": body}
 
 
 @pytest.mark.asyncio
@@ -217,7 +119,9 @@ async def test_async_core_explicit_credential_covers_eight_actions_without_runti
         "ListMemorySessions",
         "ListMemorySessionMessages",
     ]
-    assert all(args[0] == "workspace-explicit" for _, args in client.calls)
+    assert all(
+        args[0].pathname.startswith("/workspaces/workspace-explicit/") for _, args in client.calls
+    )
     assert isinstance(results[0], AddMemoriesResult)
     assert isinstance(results[1], SearchMemoriesResult)
     assert isinstance(results[2], Page)
@@ -339,10 +243,10 @@ def test_sync_close_waits_for_active_memory_call() -> None:
     close_done = threading.Event()
 
     class BlockingClient(IntegrationClient):
-        async def get_memory_with_options_async(self, *args: Any) -> Any:
+        async def call_api_async(self, *args: Any) -> Any:
             started.set()
             await anyio.to_thread.run_sync(release.wait)
-            return await super().get_memory_with_options_async(*args)
+            return await super().call_api_async(*args)
 
     core = _sync_core(SyncAsyncCore(BlockingClient()))
     store = core.memory_store("customer_memory")

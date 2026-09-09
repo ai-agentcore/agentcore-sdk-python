@@ -9,7 +9,7 @@ description = "Python runtime SDK for Alibaba Cloud AgentCore high-code agents"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "alibabacloud-agentcore20260804==1.2.2",
+  "alibabacloud-agentcore20260804==1.2.1",
   "anthropic>=1,<2",
   "anyio>=4.4,<5",
   "httpx>=0.27,<1",

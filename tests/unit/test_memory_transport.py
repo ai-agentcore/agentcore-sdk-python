@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -7,7 +8,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from alibabacloud_agentcore20260804 import models
 from darabonba.exceptions import TeaException
 
 from agentcore.auth import AccessKeyCredential
@@ -26,8 +26,19 @@ from agentcore.memory import (
 from agentcore.memory._transport import _MemoryRuntime, _MemoryTransport
 
 
+def _wire(value: Any) -> Any:
+    if isinstance(value, SimpleNamespace):
+        return {
+            key.split("_")[0] + "".join(p.title() for p in key.split("_")[1:]): _wire(item)
+            for key, item in vars(value).items()
+        }
+    if isinstance(value, list):
+        return [_wire(item) for item in value]
+    return value
+
+
 @dataclass(frozen=True)
-class GeneratedCall:
+class OpenAPICall:
     operation: str
     args: tuple[Any, ...]
 
@@ -52,38 +63,17 @@ class RecordingClient:
         self.responses = _success_responses()
         if responses:
             self.responses.update(responses)
-        self.calls: list[GeneratedCall] = []
+        self.calls: list[OpenAPICall] = []
 
     async def _call(self, operation: str, *args: Any) -> Any:
-        self.calls.append(GeneratedCall(operation, args))
+        self.calls.append(OpenAPICall(operation, args))
         result = self.responses[operation]
         if isinstance(result, Exception):
             raise result
-        return result
+        return _wire(result)
 
-    async def add_memories_with_options_async(self, *args: Any) -> Any:
-        return await self._call("AddMemories", *args)
-
-    async def search_memories_with_options_async(self, *args: Any) -> Any:
-        return await self._call("SearchMemories", *args)
-
-    async def list_memories_with_options_async(self, *args: Any) -> Any:
-        return await self._call("ListMemories", *args)
-
-    async def get_memory_with_options_async(self, *args: Any) -> Any:
-        return await self._call("GetMemory", *args)
-
-    async def update_memory_with_options_async(self, *args: Any) -> Any:
-        return await self._call("UpdateMemory", *args)
-
-    async def delete_memory_with_options_async(self, *args: Any) -> Any:
-        return await self._call("DeleteMemory", *args)
-
-    async def list_memory_sessions_with_options_async(self, *args: Any) -> Any:
-        return await self._call("ListMemorySessions", *args)
-
-    async def list_memory_session_messages_with_options_async(self, *args: Any) -> Any:
-        return await self._call("ListMemorySessionMessages", *args)
+    async def call_api_async(self, params: Any, request: Any, runtime: Any) -> Any:
+        return await self._call(params.action, params, request, runtime)
 
 
 @dataclass
@@ -105,9 +95,7 @@ def _harness(responses: dict[str, Any] | None = None) -> StoreHarness:
         resource_sts=sts,
     )
     runtime_calls: list[_MemoryRuntime] = []
-    factory_calls: list[
-        tuple[_MemoryRuntime, AccessKeyCredential | ResourceCredential]
-    ] = []
+    factory_calls: list[tuple[_MemoryRuntime, AccessKeyCredential | ResourceCredential]] = []
 
     async def runtime_provider() -> _MemoryRuntime:
         runtime_calls.append(runtime)
@@ -133,60 +121,54 @@ def _memory_scope(scope_type: type[Any]) -> Any:
 
 
 def _success_responses() -> dict[str, Any]:
-    get_memory = models.GetMemoryResponseBodyData(
+    get_memory = SimpleNamespace(
         memory_id="memory-get",
-        content=models.GetMemoryResponseBodyDataContent(text="get text"),
-        scope=_memory_scope(models.GetMemoryResponseBodyDataScope),
+        content=SimpleNamespace(text="get text"),
+        scope=_memory_scope(SimpleNamespace),
         metadata={"source": "get"},
         created_at="2026-09-02T01:00:00Z",
         updated_at="2026-09-02T02:00:00Z",
     )
-    updated_memory = models.UpdateMemoryResponseBodyData(
+    updated_memory = SimpleNamespace(
         memory_id="memory-update",
-        content=models.UpdateMemoryResponseBodyDataContent(text="updated text"),
-        scope=_memory_scope(models.UpdateMemoryResponseBodyDataScope),
+        content=SimpleNamespace(text="updated text"),
+        scope=_memory_scope(SimpleNamespace),
         metadata={"source": "update"},
         created_at="2026-09-02T01:00:00Z",
         updated_at="2026-09-02T03:00:00Z",
     )
-    listed_memory = models.ListMemoriesResponseBodyItems(
+    listed_memory = SimpleNamespace(
         memory_id="memory-list",
-        content=models.ListMemoriesResponseBodyItemsContent(text="listed text"),
-        scope=_memory_scope(models.ListMemoriesResponseBodyItemsScope),
+        content=SimpleNamespace(text="listed text"),
+        scope=_memory_scope(SimpleNamespace),
         metadata={"source": "list"},
         created_at="2026-09-02T01:00:00Z",
         updated_at=None,
     )
-    searched_memory = models.SearchMemoriesResponseBodyDataMemoriesMemory(
+    searched_memory = SimpleNamespace(
         memory_id="memory-search",
-        content=models.SearchMemoriesResponseBodyDataMemoriesMemoryContent(
-            text="searched text"
-        ),
-        scope=_memory_scope(models.SearchMemoriesResponseBodyDataMemoriesMemoryScope),
+        content=SimpleNamespace(text="searched text"),
+        scope=_memory_scope(SimpleNamespace),
         metadata={"source": "search"},
     )
     return {
-        "AddMemories": models.AddMemoriesResponse(
+        "AddMemories": SimpleNamespace(
             status_code=200,
-            body=models.AddMemoriesResponseBody(
+            body=SimpleNamespace(
                 success=True,
                 http_status_code=200,
                 request_id="request-add",
-                data=models.AddMemoriesResponseBodyData(
-                    memories=[
-                        models.AddMemoriesResponseBodyDataMemories(memory_id="memory-add")
-                    ]
-                ),
+                data=SimpleNamespace(memories=[SimpleNamespace(memory_id="memory-add")]),
             ),
         ),
-        "SearchMemories": models.SearchMemoriesResponse(
+        "SearchMemories": SimpleNamespace(
             status_code=200,
-            body=models.SearchMemoriesResponseBody(
+            body=SimpleNamespace(
                 success=True,
                 http_status_code=200,
-                data=models.SearchMemoriesResponseBodyData(
+                data=SimpleNamespace(
                     memories=[
-                        models.SearchMemoriesResponseBodyDataMemories(
+                        SimpleNamespace(
                             memory=searched_memory,
                             score=0.95,
                             similarity=0.85,
@@ -195,9 +177,9 @@ def _success_responses() -> dict[str, Any]:
                 ),
             ),
         ),
-        "ListMemories": models.ListMemoriesResponse(
+        "ListMemories": SimpleNamespace(
             status_code=200,
-            body=models.ListMemoriesResponseBody(
+            body=SimpleNamespace(
                 success=True,
                 http_status_code=200,
                 items=[listed_memory],
@@ -206,33 +188,33 @@ def _success_responses() -> dict[str, Any]:
                 total_count=3,
             ),
         ),
-        "GetMemory": models.GetMemoryResponse(
+        "GetMemory": SimpleNamespace(
             status_code=200,
-            body=models.GetMemoryResponseBody(
+            body=SimpleNamespace(
                 success=True,
                 http_status_code=200,
                 data=get_memory,
             ),
         ),
-        "UpdateMemory": models.UpdateMemoryResponse(
+        "UpdateMemory": SimpleNamespace(
             status_code=200,
-            body=models.UpdateMemoryResponseBody(
+            body=SimpleNamespace(
                 success=True,
                 http_status_code=200,
                 data=updated_memory,
             ),
         ),
-        "DeleteMemory": models.DeleteMemoryResponse(
+        "DeleteMemory": SimpleNamespace(
             status_code=200,
-            body=models.DeleteMemoryResponseBody(success=True, http_status_code=200),
+            body=SimpleNamespace(success=True, http_status_code=200),
         ),
-        "ListMemorySessions": models.ListMemorySessionsResponse(
+        "ListMemorySessions": SimpleNamespace(
             status_code=200,
-            body=models.ListMemorySessionsResponseBody(
+            body=SimpleNamespace(
                 success=True,
                 http_status_code=200,
                 items=[
-                    models.ListMemorySessionsResponseBodyItems(
+                    SimpleNamespace(
                         agent_id="agent-1",
                         session_id="session-1",
                         user_id="user-1",
@@ -243,13 +225,13 @@ def _success_responses() -> dict[str, Any]:
                 total_count=None,
             ),
         ),
-        "ListMemorySessionMessages": models.ListMemorySessionMessagesResponse(
+        "ListMemorySessionMessages": SimpleNamespace(
             status_code=200,
-            body=models.ListMemorySessionMessagesResponseBody(
+            body=SimpleNamespace(
                 success=True,
                 http_status_code=200,
                 items=[
-                    models.ListMemorySessionMessagesResponseBodyItems(
+                    SimpleNamespace(
                         role="user",
                         content="message content",
                     )
@@ -337,18 +319,22 @@ async def test_eight_actions_use_runtime_workspace_memory_store_sts_and_no_retry
     assert harness.sts.purposes == ["highcode_sdk"] * 8
     assert len(harness.runtime_calls) == 8
     assert len(harness.factory_calls) == 8
-    assert all(call.args[0] == "workspace-runtime" for call in harness.client.calls)
-    assert all(call.args[1] == "customer_memory" for call in harness.client.calls)
+    assert all(
+        call.args[0].pathname.startswith(
+            "/workspaces/workspace-runtime/memorystores/customer_memory/"
+        )
+        for call in harness.client.calls
+    )
     for index, call in enumerate(harness.client.calls):
         runtime_options = call.args[-1]
         assert runtime_options.autoretry is False
         assert runtime_options.max_attempts == 1
         assert runtime_options.read_timeout == (120_000 if index == 0 else None)
-        assert call.args[-2] == {}
+        assert call.args[1].headers == {}
 
 
 @pytest.mark.asyncio
-async def test_add_text_and_messages_map_to_generated_body_without_cross_mode_fields() -> None:
+async def test_add_text_and_messages_map_to_wire_body_without_cross_mode_fields() -> None:
     scope = MemoryScope(agent_id="agent-1", session_id="session-1", user_id="user-1")
     text_harness = _harness()
     await text_harness.store.add_memories(
@@ -356,15 +342,14 @@ async def test_add_text_and_messages_map_to_generated_body_without_cross_mode_fi
         text="remember",
         metadata={"kind": "text"},
     )
-    text_body = text_harness.client.calls[0].args[2].body
+    text_body = json.loads(text_harness.client.calls[0].args[1].body["body"])
 
-    assert isinstance(text_harness.client.calls[0].args[2], models.AddMemoriesRequest)
-    assert text_body.text == "remember"
-    assert text_body.messages is None
-    assert text_body.metadata == {"kind": "text"}
-    assert text_body.scope.agent_id == "agent-1"
-    assert text_body.scope.session_id == "session-1"
-    assert text_body.scope.user_id == "user-1"
+    assert text_body.get("text") == "remember"
+    assert text_body.get("messages") is None
+    assert text_body["metadata"] == {"kind": "text"}
+    assert text_body["scope"]["agentId"] == "agent-1"
+    assert text_body["scope"]["sessionId"] == "session-1"
+    assert text_body["scope"]["userId"] == "user-1"
 
     message_harness = _harness()
     await message_harness.store.add_memories(
@@ -376,11 +361,11 @@ async def test_add_text_and_messages_map_to_generated_body_without_cross_mode_fi
             )
         ],
     )
-    message_body = message_harness.client.calls[0].args[2].body
+    message_body = json.loads(message_harness.client.calls[0].args[1].body["body"])
 
-    assert message_body.text is None
-    assert len(message_body.messages) == 1
-    assert message_body.messages[0].to_map() == {
+    assert message_body.get("text") is None
+    assert len(message_body["messages"]) == 1
+    assert message_body["messages"][0] == {
         "content": "hello",
         "role": "user",
     }
@@ -405,11 +390,11 @@ async def test_add_allows_omitted_and_independent_scope_fields(
 
     await harness.store.add_memories(scope=scope, text="remember")
 
-    generated_scope = harness.client.calls[0].args[2].body.scope
+    wire_scope = json.loads(harness.client.calls[0].args[1].body["body"]).get("scope")
     if expected is None:
-        assert generated_scope is None
+        assert wire_scope is None
     else:
-        assert generated_scope.to_map() == expected
+        assert wire_scope == expected
 
 
 @pytest.mark.asyncio
@@ -439,20 +424,20 @@ async def test_search_preserves_independent_scope_fields(
 
     await harness.store.search_memories("query", scope=scope, top_k=50)
 
-    request = harness.client.calls[0].args[2]
-    assert isinstance(request, models.SearchMemoriesRequest)
-    assert request.body.query == "query"
-    assert request.body.top_k == 50
-    generated_scope = request.body.scope
+    request = harness.client.calls[0].args[1]
+    body = json.loads(request.body["body"])
+    assert body["query"] == "query"
+    assert body["topK"] == 50
+    wire_scope = body.get("scope")
     if expected is None:
-        assert generated_scope is None
+        assert wire_scope is None
     else:
         assert (
-            generated_scope.user_id,
-            generated_scope.agent_id,
-            generated_scope.session_id,
+            wire_scope.get("userId"),
+            wire_scope.get("agentId"),
+            wire_scope.get("sessionId"),
         ) == expected
-    assert not hasattr(request, "next_token")
+    assert "nextToken" not in body
 
 
 @pytest.mark.asyncio
@@ -467,8 +452,8 @@ async def test_search_maps_all_optional_body_fields() -> None:
         min_score=1.1,
     )
 
-    body = harness.client.calls[0].args[2].body
-    assert body.to_map() == {
+    body = json.loads(harness.client.calls[0].args[1].body["body"])
+    assert body == {
         "enableRerank": False,
         "metadata": {"source": "test"},
         "minScore": 1.1,
@@ -503,13 +488,12 @@ async def test_list_memories_maps_query_fields_and_omissions(
         next_token="opaque-token",
     )
 
-    request = harness.client.calls[0].args[2]
-    assert isinstance(request, models.ListMemoriesRequest)
-    assert request.user_id == user_id
-    assert request.agent_id == agent_id
-    assert request.session_id == session_id
-    assert request.max_results == 100
-    assert request.next_token == "opaque-token"
+    request = harness.client.calls[0].args[1]
+    assert request.query.get("userId") == user_id
+    assert request.query.get("agentId") == agent_id
+    assert request.query.get("sessionId") == session_id
+    assert request.query.get("maxResults") == "100"
+    assert request.query.get("nextToken") == "opaque-token"
 
 
 @pytest.mark.asyncio
@@ -521,16 +505,12 @@ async def test_path_and_update_requests_never_include_scope() -> None:
     await harness.store.delete_memory("memory-delete")
 
     get_call, update_call, delete_call = harness.client.calls
-    assert get_call.args[2] == "memory-get"
-    assert isinstance(get_call.args[3], models.GetMemoryRequest)
-    assert not hasattr(get_call.args[3], "scope")
-    assert update_call.args[2] == "memory-update"
-    assert update_call.args[3].body.text is None
-    assert update_call.args[3].body.metadata == {}
-    assert not hasattr(update_call.args[3].body, "scope")
-    assert delete_call.args[2] == "memory-delete"
-    assert isinstance(delete_call.args[3], models.DeleteMemoryRequest)
-    assert not hasattr(delete_call.args[3], "scope")
+    assert get_call.args[0].pathname.endswith("/memories/memory-get")
+    assert get_call.args[1].to_map() == {"headers": {}}
+    assert update_call.args[0].pathname.endswith("/memories/memory-update")
+    assert json.loads(update_call.args[1].body["body"]) == {"metadata": {}}
+    assert delete_call.args[0].pathname.endswith("/memories/memory-delete")
+    assert delete_call.args[1].to_map() == {"headers": {}}
 
 
 @pytest.mark.asyncio
@@ -551,12 +531,11 @@ async def test_update_sends_only_fields_explicitly_provided(
 
     await harness.store.update_memory("memory-update", text=text, metadata=metadata)
 
-    body = harness.client.calls[0].args[3].body
-    assert body.text == text
-    assert body.metadata == metadata
-    mapped = body.to_map()
-    assert ("text" in mapped) is (text is not None)
-    assert ("metadata" in mapped) is (metadata is not None)
+    body = json.loads(harness.client.calls[0].args[1].body["body"])
+    assert body.get("text") == text
+    assert body.get("metadata") == metadata
+    assert ("text" in body) is (text is not None)
+    assert ("metadata" in body) is (metadata is not None)
 
 
 @pytest.mark.asyncio
@@ -577,17 +556,17 @@ async def test_session_and_message_list_query_and_path_parameters_are_exact() ->
         next_token="messages-token",
     )
 
-    sessions_request = harness.client.calls[0].args[2]
-    assert sessions_request.to_map() == {
+    sessions_request = harness.client.calls[0].args[1]
+    assert sessions_request.query == {
         "agentId": "agent-1",
-        "maxResults": 12,
+        "maxResults": "12",
         "nextToken": "sessions-token",
         "userId": "user-1",
     }
     messages_call = harness.client.calls[1]
-    assert messages_call.args[2].to_map() == {
+    assert messages_call.args[1].query == {
         "agentId": "agent-1",
-        "maxResults": 13,
+        "maxResults": "13",
         "nextToken": "messages-token",
         "sessionId": "session-1",
         "userId": "user-1",
@@ -624,19 +603,17 @@ async def test_message_list_requires_one_identity_and_omits_the_other(
         agent_id=agent_id,
     )
 
-    assert harness.client.calls[0].args[2].to_map() == expected
+    assert harness.client.calls[0].args[1].query == expected
 
 
 @pytest.mark.asyncio
 async def test_response_projection_preserves_omitted_default_scope_fields() -> None:
     responses = _success_responses()
-    responses["GetMemory"].body.data.scope = models.GetMemoryResponseBodyDataScope(
-        user_id="user-1"
-    )
+    responses["GetMemory"].body.data.scope = SimpleNamespace(user_id="user-1")
     responses["ListMemorySessions"].body.items = [
-        models.ListMemorySessionsResponseBodyItems(user_id="user-1"),
-        models.ListMemorySessionsResponseBodyItems(agent_id="agent-1"),
-        models.ListMemorySessionsResponseBodyItems(session_id="session-1"),
+        SimpleNamespace(user_id="user-1"),
+        SimpleNamespace(agent_id="agent-1"),
+        SimpleNamespace(session_id="session-1"),
     ]
     harness = _harness(responses)
 
@@ -654,23 +631,23 @@ async def test_response_projection_preserves_omitted_default_scope_fields() -> N
 @pytest.mark.asyncio
 async def test_empty_add_search_and_pages_preserve_contractual_empty_results() -> None:
     responses = {
-        "AddMemories": models.AddMemoriesResponse(
+        "AddMemories": SimpleNamespace(
             status_code=200,
-            body=models.AddMemoriesResponseBody(
+            body=SimpleNamespace(
                 success=True,
-                data=models.AddMemoriesResponseBodyData(memories=[]),
+                data=SimpleNamespace(memories=[]),
             ),
         ),
-        "SearchMemories": models.SearchMemoriesResponse(
+        "SearchMemories": SimpleNamespace(
             status_code=200,
-            body=models.SearchMemoriesResponseBody(
+            body=SimpleNamespace(
                 success=True,
-                data=models.SearchMemoriesResponseBodyData(memories=[]),
+                data=SimpleNamespace(memories=[]),
             ),
         ),
-        "ListMemories": models.ListMemoriesResponse(
+        "ListMemories": SimpleNamespace(
             status_code=200,
-            body=models.ListMemoriesResponseBody(
+            body=SimpleNamespace(
                 success=True,
                 items=[],
                 next_token="continue-after-empty-page",
@@ -693,7 +670,7 @@ async def test_empty_add_search_and_pages_preserve_contractual_empty_results() -
 
 
 @pytest.mark.asyncio
-async def test_unknown_generated_response_fields_are_ignored() -> None:
+async def test_unknown_response_fields_are_ignored() -> None:
     responses = _success_responses()
     get_response = responses["GetMemory"]
     get_response.body.future_envelope_field = "ignored"
@@ -715,9 +692,9 @@ async def test_unknown_generated_response_fields_are_ignored() -> None:
 async def test_page_terminal_tokens_normalize_to_none(next_token: str | None) -> None:
     harness = _harness(
         {
-            "ListMemories": models.ListMemoriesResponse(
+            "ListMemories": SimpleNamespace(
                 status_code=200,
-                body=models.ListMemoriesResponseBody(
+                body=SimpleNamespace(
                     success=True,
                     items=[],
                     next_token=next_token,
@@ -738,18 +715,18 @@ async def test_page_terminal_tokens_normalize_to_none(next_token: str | None) ->
         None,
         SimpleNamespace(status_code=200, body=None),
         SimpleNamespace(status_code=200, body=SimpleNamespace(success=None)),
-        models.GetMemoryResponse(
+        SimpleNamespace(
             status_code=200,
-            body=models.GetMemoryResponseBody(success=True, data=None),
+            body=SimpleNamespace(success=True, data=None),
         ),
-        models.GetMemoryResponse(
+        SimpleNamespace(
             status_code=200,
-            body=models.GetMemoryResponseBody(
+            body=SimpleNamespace(
                 success=True,
-                data=models.GetMemoryResponseBodyData(
+                data=SimpleNamespace(
                     memory_id="memory-1",
                     content=None,
-                    scope=models.GetMemoryResponseBodyDataScope(
+                    scope=SimpleNamespace(
                         agent_id="agent",
                         session_id="session",
                     ),
@@ -767,14 +744,12 @@ async def test_malformed_get_success_response_is_contract_error(response: Any) -
 
 @pytest.mark.asyncio
 async def test_malformed_add_success_response_is_outcome_unknown() -> None:
-    response = models.AddMemoriesResponse(
+    response = SimpleNamespace(
         status_code=200,
-        body=models.AddMemoriesResponseBody(
+        body=SimpleNamespace(
             success=True,
             request_id="request-malformed-add",
-            data=models.AddMemoriesResponseBodyData(
-                memories=[models.AddMemoriesResponseBodyDataMemories(memory_id=None)]
-            ),
+            data=SimpleNamespace(memories=[SimpleNamespace(memory_id=None)]),
         ),
     )
     harness = _harness({"AddMemories": response})
