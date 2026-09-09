@@ -7,6 +7,7 @@ name = "alibabacloud-agentcore-sdk"
 version = "0.2.1"
 description = "Python runtime SDK for Alibaba Cloud AgentCore high-code agents"
 readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.10"
 dependencies = [
   "alibabacloud-agentcore20260804==1.2.1",
