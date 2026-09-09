@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "alibabacloud-agentcore-collaboration"
-version = "0.1.0"
+version = "0.1.1"
 description = "Independently versioned Worker collaboration for the AgentCore SDK"
 readme = "README.md"
 license = { file = "LICENSE" }
