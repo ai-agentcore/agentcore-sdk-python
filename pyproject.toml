@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "alibabacloud-agentcore-sdk"
-version = "0.2.1"
+version = "0.1.0"
 description = "Python runtime SDK for Alibaba Cloud AgentCore high-code agents"
 readme = "README.md"
 license = { file = "LICENSE" }

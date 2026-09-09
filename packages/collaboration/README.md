@@ -12,7 +12,7 @@
 pip install "alibabacloud-agentcore-sdk[collaboration]"
 ```
 
-协作包 0.1.x 适用于基础 SDK `>=0.2.1,<0.3.0`。
+协作包 0.1.x 适用于基础 SDK `>=0.1.0,<0.2.0`。
 
 本页使用 LangChain，完整服务示例还需要 Server 支持。请额外安装：
 
