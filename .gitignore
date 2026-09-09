@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+# Dependency locks for local development; distributions use pyproject.toml.
+/uv.lock
+/.skills/
+
+# Local smoke image and its dedicated tests
+/examples/high_code_smoke/
+/tests/unit/test_high_code_smoke_example.py
+/tests/optional/test_high_code_frameworks.py
+
+# Internal design and development records (kept locally)
+/docs/design/
+/docs/control-plane-development-contract.md
+/docs/implementation-status.md
+/docs/collaboration-local-test.md

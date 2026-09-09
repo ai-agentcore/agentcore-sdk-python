@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "alibabacloud-agentcore-collaboration"
+version = "0.1.0"
+description = "Independently versioned Worker collaboration for the AgentCore SDK"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "alibabacloud-agentcore-sdk>=0.2.1,<0.3.0",
+  "anyio>=4.4,<5",
+  "httpx>=0.27,<1",
+  "PyYAML>=6.0,<7",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agentcore_collaboration"]
+
+[tool.uv.sources]
+alibabacloud-agentcore-sdk = { workspace = true }

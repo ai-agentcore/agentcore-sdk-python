@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcore.aliyun.com/schemas/high-code-agent-yaml-v1alpha1.json",
+  "title": "AgentCore High-Code AgentConfig",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {"const": "agentteams.io/v1alpha1"},
+    "kind": {"const": "AgentConfig"},
+    "metadata": {
+      "type": "object",
+      "required": ["runtimeName", "workspaceId", "regionId"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "runtimeName": {"type": "string", "minLength": 1},
+        "workspaceId": {"type": "string", "minLength": 1},
+        "regionId": {"type": "string", "minLength": 1},
+        "generation": {"type": ["string", "integer"]},
+        "updatedAt": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "spec": {
+      "type": "object",
+      "required": ["model", "mcp", "credentials"],
+      "properties": {
+        "model": {"$ref": "#/$defs/gateway"},
+        "mcp": {"$ref": "#/$defs/gateway"},
+        "credentials": {"$ref": "#/$defs/gatewayCredentials"}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "safeUrl": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https?://[^/?#@]+(?:/[^?#]*)?$"
+    },
+    "gateway": {
+      "type": "object",
+      "required": ["gatewayUrl"],
+      "properties": {
+        "gatewayUrl": {"$ref": "#/$defs/safeUrl"}
+      },
+      "additionalProperties": true
+    },
+    "gatewayCredentials": {
+      "type": "object",
+      "required": ["header"],
+      "properties": {
+        "header": {
+          "type": "array",
+          "minItems": 1,
+          "allOf": [
+            {
+              "contains": {
+                "type": "object",
+                "required": ["key"],
+                "properties": {
+                  "key": {"type": "string", "pattern": "^[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn]$"}
+                }
+              },
+              "minContains": 1,
+              "maxContains": 1
+            },
+            {
+              "contains": {
+                "type": "object",
+                "required": ["key", "value"],
+                "properties": {
+                  "key": {"type": "string", "pattern": "^[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn]$"},
+                  "value": {"type": "string", "pattern": "^[Bb][Ee][Aa][Rr][Ee][Rr][ ]+\\S.*$"}
+                }
+              },
+              "minContains": 1,
+              "maxContains": 1
+            }
+          ],
+          "items": {
+            "type": "object",
+            "required": ["key", "value"],
+            "properties": {
+              "key": {
+                "type": "string",
+                "pattern": "^[!#$%&'*+\\-.^_`|~0-9A-Za-z]+$"
+              },
+              "value": {"type": "string", "minLength": 1}
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}
