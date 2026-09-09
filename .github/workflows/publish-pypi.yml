@@ -1,0 +1,80 @@
+name: Publish Python package
+
+on:
+  push:
+    tags:
+      - 'sdk-v*'
+      - 'collaboration-v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-pypi-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      package: ${{ steps.package.outputs.package }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Select package and verify tag version
+        id: package
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          tag = os.environ['RELEASE_TAG']
+          if tag.startswith('sdk-v'):
+              directory, version = '.', tag.removeprefix('sdk-v')
+          elif tag.startswith('collaboration-v'):
+              directory, version = 'packages/collaboration', tag.removeprefix('collaboration-v')
+          else:
+              raise SystemExit(f'Unsupported release tag: {tag}')
+
+          project = tomllib.loads((Path(directory) / 'pyproject.toml').read_text())['project']
+          if version != project['version']:
+              raise SystemExit(f"Tag version {version!r} does not match {project['name']} {project['version']}")
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f"directory={directory}\npackage={project['name']}\n")
+          print(f"Building {project['name']} {version}")
+          PY
+      - name: Install build tools
+        run: python -m pip install build twine
+      - name: Build wheel and source distribution
+        env:
+          PACKAGE_DIRECTORY: ${{ steps.package.outputs.directory }}
+        run: python -m build "$PACKAGE_DIRECTORY" --outdir dist
+      - name: Check distributions
+        run: python -m twine check --strict dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pypi-distributions
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    if: github.repository == 'ai-agentcore/agentcore-sdk-python'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/${{ needs.build.outputs.package }}/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: pypi-distributions
+          path: dist
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
