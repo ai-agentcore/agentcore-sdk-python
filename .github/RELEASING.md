@@ -40,7 +40,7 @@
 
 4. 在 GitHub Actions 中确认构建和发布成功，再检查 PyPI 对应版本及安装结果。
 
-以上命令在 GitHub 对应 checkout 中执行。内部仓库可以保留同名 tag，但只有向 GitHub 推送 tag 会触发此工作流；同步独立历史仓库时，应在各自内容一致的提交上打 tag，不直接推送另一仓库的提交历史。
+以上命令在本 GitHub 仓库的本地 checkout 中执行，向 GitHub 推送 tag 后触发发布工作流。
 
 工作流校验 tag 版本与所选包的声明完全一致，不会自动修改版本。构建任务生成 wheel 和源码包，经过 `twine check --strict` 后，独立发布任务才获取 OIDC 权限并上传。
 

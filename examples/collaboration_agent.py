@@ -1,4 +1,7 @@
-"""Cloud Worker service: LangChain + collaboration + both Server protocols."""
+"""Cloud Worker service: LangChain + collaboration + both Server protocols.
+
+Requires AgentCore platform allowlist access to collaboration.
+"""
 
 import logging
 

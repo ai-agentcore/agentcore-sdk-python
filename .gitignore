@@ -16,6 +16,10 @@ build/
 /tests/unit/test_high_code_smoke_example.py
 /tests/optional/test_high_code_frameworks.py
 
+# Local cloud verification scripts and their dedicated tests
+/examples/memory_data_plane_smoke.py
+/tests/unit/test_memory_smoke_example.py
+
 # Internal design and development records (kept locally)
 /docs/design/
 /docs/control-plane-development-contract.md
