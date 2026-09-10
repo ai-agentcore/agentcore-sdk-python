@@ -88,7 +88,7 @@ async def test_control_plane_does_not_switch_on_service_rejection(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("endpoint", [PUBLIC, "https://agentcore-pre.aliyuncs.com", PRIVATE])
+@pytest.mark.parametrize("endpoint", [PUBLIC, "https://custom.example.com", PRIVATE])
 async def test_explicit_control_endpoint_never_switches(
     monkeypatch: pytest.MonkeyPatch, endpoint: str
 ) -> None:
