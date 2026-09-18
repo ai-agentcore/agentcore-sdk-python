@@ -217,6 +217,7 @@ def test_teams_provider_caches_rejected_update(
     with caplog.at_level(logging.WARNING):
         assert provider.snapshot() is initial
         assert provider.snapshot() is initial
+    assert "unsupported teams.yaml apiVersion or kind" in caplog.text
 
     ignored = [
         record

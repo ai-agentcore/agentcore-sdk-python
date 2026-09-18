@@ -124,15 +124,20 @@ def test_memory_errors_have_stable_codes_and_safe_structured_fields() -> None:
     assert unknown_error.__cause__ is None
 
 
-def test_memory_api_error_never_accepts_or_exposes_service_message() -> None:
+def test_memory_api_error_retains_diagnostics_without_labelled_secrets() -> None:
     marker = "SECRET_SERVICE_MESSAGE"
     error = MemoryAPIError(
         "DeleteMemory",
         service_code="Forbidden",
         http_status_code=403,
         request_id="request-3",
+        service_message=f"Permission denied; token={marker}",
     )
 
     assert marker not in str(error)
     assert marker not in repr(error)
-    assert "message" not in vars(error) or vars(error)["message"] != marker
+    assert marker not in repr(vars(error))
+    assert "Permission denied" in str(error)
+    assert "request-3" in str(error)
+    assert "Forbidden" in str(error)
+    assert "403" in str(error)

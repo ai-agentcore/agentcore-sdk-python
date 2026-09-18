@@ -17,6 +17,7 @@ import yaml
 from yaml.constructor import ConstructorError
 
 from agentcore.collaboration.errors import CollaborationConfigError
+from agentcore_collaboration._logging import safe_error_message
 
 DEFAULT_TEAMS_PATH = Path("/var/run/agentcore/agent/teams.yaml")
 _MAX_FILE_BYTES = 1024 * 1024
@@ -124,9 +125,10 @@ class TeamsProvider:
                     self._observed_signature = signature
                     self._observed_digest = digest
                 logger.warning(
-                    "agentcore.collaboration.teams.update_ignored path=%s error_type=%s",
+                    "agentcore.collaboration.teams.update_ignored path=%s error_type=%s reason=%s",
                     self.path,
                     type(exc).__name__,
+                    safe_error_message(str(exc)),
                 )
                 return self._last_good
             raise

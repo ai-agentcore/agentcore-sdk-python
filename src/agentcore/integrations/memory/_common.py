@@ -123,14 +123,18 @@ def log_failure(
     exc: MemoryAPIError | MemoryContractError,
     started: float,
 ) -> None:
-    # The data-plane transport retains the exception chain. Do not format that
-    # chain here: upstream exception bodies can contain conversation data.
+    # Only log normalized diagnostics, never the upstream exception chain.
     logger.warning(
         "agentcore.memory.adapter.%s.failed store=%s error_type=%s "
-        "upstream_request_id=%s elapsed_ms=%s",
+        "upstream_request_id=%s elapsed_ms=%s api_operation=%s "
+        "status=%s service_code=%s message=%s",
         operation,
         store.memory_store_name,
         type(exc).__name__,
         exc.request_id if isinstance(exc, MemoryAPIError) else "-",
         elapsed_ms(started),
+        exc.operation,
+        exc.http_status_code if isinstance(exc, MemoryAPIError) else "-",
+        exc.service_code if isinstance(exc, MemoryAPIError) else "-",
+        exc.service_message if isinstance(exc, MemoryAPIError) else exc.detail,
     )

@@ -769,7 +769,7 @@ def _failure_response(status: int) -> Any:
         body=SimpleNamespace(
             success=False,
             code="BusinessFailed",
-            message="SECRET_SERVICE_MESSAGE",
+            message="Service rejected request; token=SECRET_SERVICE_MESSAGE",
             http_status_code=status,
             request_id="request-business",
         ),
@@ -780,10 +780,35 @@ def _tea_error(status: int) -> TeaException:
     return TeaException(
         {
             "code": "ServiceError",
-            "message": "SECRET_SERVICE_MESSAGE",
+            "message": "Service rejected request; token=SECRET_SERVICE_MESSAGE",
             "data": {"statusCode": status, "requestId": f"request-{status}"},
         }
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["exception", "body", "header"])
+async def test_memory_diagnostics_retain_service_message_and_request_id(kind, caplog):
+    message = "Memory store unavailable; Authorization: Bearer PRIVATE_TOKEN"
+    if kind == "exception":
+        response = TeaException({"code": "StoreUnavailable", "message": message,
+                                 "data": {"statusCode": 503, "RequestId": "req-diagnostic"}})
+    else:
+        response = {"statusCode": 200, "headers": {"X-ACS-REQUEST-ID": "req-diagnostic"},
+                    "body": {"success": False, "code": "StoreUnavailable", "message": message,
+                             "httpStatusCode": 503}}
+        if kind == "body":
+            response["body"]["requestId"] = "req-diagnostic"
+    harness = _harness({"SearchMemories": response})
+    with pytest.raises(MemoryAPIError) as raised:
+        await harness.store.search_memories("PRIVATE_QUERY")
+    for output in (str(raised.value), caplog.text):
+        assert "req-diagnostic" in output
+        assert "StoreUnavailable" in output
+        assert "Memory store unavailable" in output
+        assert "503" in output
+        assert "PRIVATE_TOKEN" not in output
+        assert "PRIVATE_QUERY" not in output
 
 
 OperationCall = Callable[[AsyncMemoryStore], Awaitable[Any]]
@@ -878,7 +903,7 @@ async def test_get_not_found_preserves_public_error_identity() -> None:
     error = TeaException(
         {
             "code": "Resource.NotFound",
-            "message": "memory details must stay private",
+            "message": "Memory does not exist",
             "data": {"statusCode": 404, "requestId": "request-not-found"},
         }
     )
@@ -890,7 +915,7 @@ async def test_get_not_found_preserves_public_error_identity() -> None:
     assert raised.value.service_code == "Resource.NotFound"
     assert raised.value.http_status_code == 404
     assert raised.value.request_id == "request-not-found"
-    assert "memory details" not in str(raised.value)
+    assert "Memory does not exist" in str(raised.value)
 
 
 @pytest.mark.asyncio

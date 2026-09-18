@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 import anyio
 import httpx
 
+from agentcore._logging import exception_diagnostics, log_response_failure, safe_url
 from agentcore.auth.agent_sa_token import AgentSATokenProvider, AgentSATokenSource
 from agentcore.errors import AuthenticationError, ConfigError, ResourceNotConfiguredError
 from agentcore.runtime.config import (
@@ -286,13 +287,18 @@ class DebugRuntimeSource:
 
     async def _request_matrix_token(self, agent_sa_token: str) -> httpx.Response:
         try:
-            return await self._client().post(
+            response = await self._client().post(
                 f"{self._debug_token.controller_url}{MATRIX_TOKEN_PATH}",
                 headers={"Authorization": f"Bearer {agent_sa_token}"},
                 content=b"",
                 follow_redirects=False,
             )
+            log_response_failure(logger, "agentcore.runtime.matrix_token.failed", response)
+            return response
         except httpx.TransportError as exc:
+            logger.warning("agentcore.runtime.matrix_token.failed url=%s error_type=%s %s",
+                           safe_url(f"{self._debug_token.controller_url}{MATRIX_TOKEN_PATH}"),
+                           type(exc).__name__, exception_diagnostics(exc))
             raise AuthenticationError("cannot reach the AgentCore Controller") from exc
 
     async def aclose(self) -> None:
@@ -428,9 +434,15 @@ class DebugRuntimeSource:
                     follow_redirects=False,
                 )
             except httpx.TransportError as exc:
+                logger.warning("agentcore.runtime.debug.sa_exchange.http.failed url=%s "
+                               "error_type=%s %s",
+                               safe_url(f"{self._debug_token.controller_url}{DEBUG_TOKEN_PATH}"),
+                               type(exc).__name__, exception_diagnostics(exc))
                 last_error = exc
                 retry_reason = type(exc).__name__
             else:
+                log_response_failure(logger, "agentcore.runtime.debug.sa_exchange.http.failed",
+                                     response)
                 if response.status_code not in {500, 502, 503, 504}:
                     return response
                 last_error = None

@@ -11,6 +11,7 @@ from urllib.parse import quote, urlsplit
 
 import httpx
 
+from agentcore._logging import exception_diagnostics
 from agentcore._logging import safe_url as _safe_url
 from agentcore.controlplane import ModelDescriptor
 from agentcore.errors import ConfigError, InvocationError
@@ -232,12 +233,12 @@ class _ManagedGatewayBackendBase:
         except Exception as exc:
             logger.warning(
                 "agentcore.model.request.failed mode=managed operation=%s "
-                "connection_id=%s error_type=%s status=%s base_url=%s",
+                "connection_id=%s error_type=%s base_url=%s %s",
                 operation,
                 self.descriptor.connection_id,
                 type(exc).__name__,
-                _exception_status(exc),
                 _safe_url(self._base_url),
+                exception_diagnostics(exc),
             )
             raise InvocationError("model request failed") from exc
         try:
@@ -361,11 +362,11 @@ class _OpenAIV1GatewayBackend(_ManagedGatewayBackendBase):
         except Exception as exc:
             logger.warning(
                 "agentcore.model.request.failed mode=managed operation=stream "
-                "connection_id=%s error_type=%s status=%s base_url=%s",
+                "connection_id=%s error_type=%s base_url=%s %s",
                 self.descriptor.connection_id,
                 type(exc).__name__,
-                _exception_status(exc),
                 _safe_url(self._base_url),
+                exception_diagnostics(exc),
             )
             raise InvocationError("model stream request failed") from exc
         logger.debug(
@@ -421,11 +422,11 @@ class _OpenAIV1GatewayBackend(_ManagedGatewayBackendBase):
         except Exception as exc:
             logger.warning(
                 "agentcore.model.request.failed mode=managed operation=responses_stream "
-                "connection_id=%s error_type=%s status=%s base_url=%s",
+                "connection_id=%s error_type=%s base_url=%s %s",
                 self.descriptor.connection_id,
                 type(exc).__name__,
-                _exception_status(exc),
                 _safe_url(self._base_url),
+                exception_diagnostics(exc),
             )
             raise InvocationError("model responses stream request failed") from exc
         logger.debug(
@@ -536,11 +537,11 @@ class _AnthropicGatewayBackend(_ManagedGatewayBackendBase):
         except Exception as exc:
             logger.warning(
                 "agentcore.model.request.failed mode=managed operation=stream "
-                "connection_id=%s error_type=%s status=%s base_url=%s",
+                "connection_id=%s error_type=%s base_url=%s %s",
                 self.descriptor.connection_id,
                 type(exc).__name__,
-                _exception_status(exc),
                 _safe_url(self._base_url),
+                exception_diagnostics(exc),
             )
             raise InvocationError("model stream request failed") from exc
         logger.debug(
@@ -676,11 +677,12 @@ class _LiteLLMDirectBackend:
         except Exception as exc:
             logger.warning(
                 "agentcore.model.request.failed mode=direct operation=completion "
-                "provider=%s model=%s error_type=%s base_url=%s",
+                "provider=%s model=%s error_type=%s base_url=%s %s",
                 self._provider,
                 self._model,
                 type(exc).__name__,
                 _safe_url(self._base_url),
+                exception_diagnostics(exc),
             )
             raise InvocationError("direct model completion failed") from exc
         try:
@@ -729,11 +731,12 @@ class _LiteLLMDirectBackend:
         except Exception as exc:
             logger.warning(
                 "agentcore.model.request.failed mode=direct operation=responses_stream "
-                "provider=%s model=%s error_type=%s base_url=%s",
+                "provider=%s model=%s error_type=%s base_url=%s %s",
                 self._provider,
                 self._model,
                 type(exc).__name__,
                 _safe_url(self._base_url),
+                exception_diagnostics(exc),
             )
             raise InvocationError("direct model responses stream failed") from exc
         logger.debug(
@@ -767,11 +770,12 @@ class _LiteLLMDirectBackend:
         except Exception as exc:
             logger.warning(
                 "agentcore.model.request.failed mode=direct operation=stream "
-                "provider=%s model=%s error_type=%s base_url=%s",
+                "provider=%s model=%s error_type=%s base_url=%s %s",
                 self._provider,
                 self._model,
                 type(exc).__name__,
                 _safe_url(self._base_url),
+                exception_diagnostics(exc),
             )
             raise InvocationError("direct model stream failed") from exc
         logger.debug(
@@ -799,11 +803,12 @@ class _LiteLLMDirectBackend:
         except Exception as exc:
             logger.warning(
                 "agentcore.model.request.failed mode=direct operation=responses "
-                "provider=%s model=%s error_type=%s base_url=%s",
+                "provider=%s model=%s error_type=%s base_url=%s %s",
                 self._provider,
                 self._model,
                 type(exc).__name__,
                 _safe_url(self._base_url),
+                exception_diagnostics(exc),
             )
             raise InvocationError("direct model responses call failed") from exc
         try:
@@ -843,11 +848,12 @@ class _LiteLLMDirectBackend:
         except Exception as exc:
             logger.warning(
                 "agentcore.model.request.failed mode=direct operation=embedding "
-                "provider=%s model=%s error_type=%s base_url=%s",
+                "provider=%s model=%s error_type=%s base_url=%s %s",
                 self._provider,
                 self._model,
                 type(exc).__name__,
                 _safe_url(self._base_url),
+                exception_diagnostics(exc),
             )
             raise InvocationError("direct model embedding failed") from exc
         try:
@@ -1029,15 +1035,6 @@ async def _log_model_http_request(request: Any) -> None:
         request.method,
         _safe_url(str(request.url)),
     )
-
-
-def _exception_status(exc: Exception) -> int | str:
-    status = getattr(exc, "status_code", None)
-    if isinstance(status, int):
-        return status
-    response = getattr(exc, "response", None)
-    status = getattr(response, "status_code", None)
-    return status if isinstance(status, int) else "-"
 
 
 def agentcore_model_base_url(

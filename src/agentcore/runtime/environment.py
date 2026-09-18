@@ -104,6 +104,8 @@ class RuntimeEnvironmentProvider:
     def _read(self) -> dict[str, str]:
         try:
             lines = self.path.read_text(encoding="utf-8").splitlines()
+        except FileNotFoundError:
+            return {}
         except OSError as exc:
             logger.warning(
                 "agentcore.environment.load.failed path=%s error_type=%s",

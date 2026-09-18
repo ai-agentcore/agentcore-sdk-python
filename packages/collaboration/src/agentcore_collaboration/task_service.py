@@ -22,6 +22,7 @@ from agentcore.collaboration.errors import (
     CollaborationTaskUnauthorizedError,
     CollaborationTaskUnavailableError,
 )
+from agentcore_collaboration._logging import log_response_failure, logger, safe_url
 from agentcore_collaboration.teams import TeamsSnapshot
 
 ProviderValue = str | Awaitable[str]
@@ -471,6 +472,7 @@ class TaskServiceClient:
                 follow_redirects=True,
             ) as response:
                 if not 200 <= response.status_code < 300:
+                    log_response_failure(response)
                     raise CollaborationTaskUnavailableError(
                         "The file download reference is temporarily unavailable."
                     )
@@ -479,6 +481,8 @@ class TaskServiceClient:
                         await target.write(chunk)
                         total += len(chunk)
         except httpx.RequestError as exc:
+            logger.warning("agentcore.collaboration.file.download.failed url=%s error_type=%s",
+                           safe_url(url), type(exc).__name__)
             raise CollaborationTaskUnavailableError(
                 "The file download reference is temporarily unavailable."
             ) from exc
@@ -578,6 +582,9 @@ class TaskServiceClient:
                     kwargs["files"] = files
                 response = await self._http.request(method, url, **kwargs)
             except httpx.RequestError as exc:
+                logger.warning("agentcore.collaboration.task_service.request.failed "
+                               "method=%s url=%s error_type=%s",
+                               method, safe_url(url), type(exc).__name__)
                 raise CollaborationTaskUnavailableError(
                     "Task Service is temporarily unavailable."
                 ) from exc
@@ -687,6 +694,7 @@ def _idempotency_key(
 def _raise_for_status(response: httpx.Response) -> None:
     if 200 <= response.status_code < 300:
         return
+    log_response_failure(response)
     if response.status_code in {401, 403}:
         raise CollaborationTaskUnauthorizedError("Task Service rejected this Worker operation.")
     if response.status_code in {400, 422}:

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 from urllib.parse import urlsplit
 
+from agentcore._logging import exception_diagnostics, safe_url
 from agentcore.auth.resource_sts import AGENT_IDENTITY_DATA_PURPOSE, ResourceCredential
 from agentcore.errors import (
     ConfigError,
@@ -225,15 +226,15 @@ class AgentIdentityDataTransport:
                 )
             )
         except Exception as exc:
+            logger.warning(
+                "agentcore.credential.api.failed operation=GetResourceAPIKey "
+                "provider_name=%s url=%s error_type=%s %s",
+                provider_name, safe_url(endpoint), type(exc).__name__, exception_diagnostics(exc),
+            )
             if _is_wat_rejection(exc):
                 raise WorkloadAccessTokenRejectedError(
                     "Agent Identity Data rejected the Workload Access Token"
                 ) from exc
-            logger.warning(
-                "agentcore.credential.api.failed provider_name=%s error_type=%s",
-                provider_name,
-                type(exc).__name__,
-            )
             raise CredentialExchangeError("Agent Identity Data API key request failed") from exc
         value = getattr(getattr(response, "body", None), "apikey", None)
         if not isinstance(value, str):

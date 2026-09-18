@@ -56,6 +56,7 @@ class _ErrorDetails:
     service_code: str | None = None
     http_status_code: int | None = None
     request_id: str | None = None
+    service_message: str | None = None
 
 
 _RuntimeProvider = Callable[[], Awaitable[_MemoryRuntime]]
@@ -360,6 +361,7 @@ class _MemoryTransport:
                     service_code=details.service_code,
                     http_status_code=details.http_status_code,
                     request_id=details.request_id,
+                    service_message=details.service_message,
                 )
             else:
                 failure = MemoryAPIError(
@@ -367,6 +369,7 @@ class _MemoryTransport:
                     service_code=details.service_code,
                     http_status_code=details.http_status_code,
                     request_id=details.request_id,
+                    service_message=details.service_message,
                 )
         if failure is not None:
             self._log_failure(failure, memory_id=memory_id, exception_type=failure_type)
@@ -393,6 +396,7 @@ class _MemoryTransport:
                 service_code=details.service_code,
                 http_status_code=details.http_status_code or response_status,
                 request_id=details.request_id,
+                service_message=details.service_message,
             )
             self._raise_api_failure(operation, details, add=add, memory_id=memory_id)
         success = _field(body, "success")
@@ -422,6 +426,7 @@ class _MemoryTransport:
                 service_code=details.service_code,
                 http_status_code=details.http_status_code,
                 request_id=details.request_id,
+                service_message=details.service_message,
             )
         else:
             error = MemoryAPIError(
@@ -429,6 +434,7 @@ class _MemoryTransport:
                 service_code=details.service_code,
                 http_status_code=details.http_status_code,
                 request_id=details.request_id,
+                service_message=details.service_message,
             )
         self._log_failure(error, memory_id=memory_id)
         raise error
@@ -458,6 +464,7 @@ class _MemoryTransport:
             service_code=details.service_code,
             http_status_code=details.http_status_code,
             request_id=details.request_id,
+            service_message=details.service_message or detail,
         )
         self._log_failure(error, memory_id=memory_id, exception_type="InvalidResponse")
         raise error
@@ -664,7 +671,7 @@ class _MemoryTransport:
     ) -> None:
         logger.warning(
             "agentcore.memory.request.failed operation=%s memory_store_name=%s "
-            "memory_id=%s status=%s service_code=%s request_id=%s error_type=%s",
+            "memory_id=%s status=%s service_code=%s request_id=%s error_type=%s message=%s",
             getattr(error, "operation", "unknown"),
             self._memory_store_name,
             memory_id or "-",
@@ -672,6 +679,7 @@ class _MemoryTransport:
             getattr(error, "service_code", None) or "-",
             getattr(error, "request_id", None) or "-",
             exception_type or type(error).__name__,
+            getattr(error, "service_message", None) or getattr(error, "detail", None) or "-",
         )
 
     @staticmethod
@@ -736,6 +744,7 @@ def _exception_details(exc: Exception) -> _ErrorDetails:
     service_code: str | None = None
     status: int | None = None
     request_id: str | None = None
+    service_message: str | None = None
     current: object | None = exc
     seen: set[int] = set()
     for _ in range(4):
@@ -749,24 +758,28 @@ def _exception_details(exc: Exception) -> _ErrorDetails:
         request_id = request_id or _safe_string(getattr(current, "requestId", None))
         data = getattr(current, "data", None)
         if isinstance(data, Mapping):
+            service_message = service_message or _safe_string(
+                data.get("message") or data.get("Message")
+            )
             service_code = service_code or _safe_string(data.get("code"))
             service_code = service_code or _safe_string(data.get("Code"))
             status = status or _optional_int(data.get("statusCode"))
             status = status or _optional_int(data.get("StatusCode"))
             request_id = request_id or _safe_string(data.get("requestId"))
             request_id = request_id or _safe_string(data.get("RequestId"))
+            request_id = request_id or _header_request_id(data.get("headers"))
+        service_message = service_message or _safe_string(getattr(current, "message", None))
         response = getattr(current, "response", None)
         status = status or _optional_int(_field(response, "status_code"))
         headers = _field(response, "headers")
         if request_id is None and isinstance(headers, Mapping):
-            request_id = _safe_string(
-                headers.get("x-acs-request-id") or headers.get("X-Acs-Request-Id")
-            )
+            request_id = _header_request_id(headers)
         current = getattr(current, "inner_exception", None)
     return _ErrorDetails(
         service_code=service_code,
         http_status_code=status,
         request_id=request_id,
+        service_message=service_message,
     )
 
 
@@ -777,5 +790,15 @@ def _response_details(response: Any, body: Any) -> _ErrorDetails:
     return _ErrorDetails(
         service_code=_safe_string(_field(body, "code")),
         http_status_code=status,
-        request_id=_safe_string(_field(body, "request_id")),
+        request_id=_safe_string(_field(body, "request_id"))
+        or _header_request_id(_field(response, "headers")),
+        service_message=_safe_string(_field(body, "message")),
     )
+
+
+def _header_request_id(headers: Any) -> str | None:
+    if isinstance(headers, Mapping):
+        for key, value in headers.items():
+            if isinstance(key, str) and key.lower() == "x-acs-request-id":
+                return _safe_string(value)
+    return None

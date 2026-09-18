@@ -136,13 +136,15 @@ async def test_bound_credential_refreshes_rejected_wat_and_retries_once() -> Non
 async def test_agent_identity_transport_classifies_explicit_wat_rejection(
     monkeypatch: pytest.MonkeyPatch,
     error_code: str,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     pytest.importorskip("alibabacloud_agentidentitydata20251127.client")
     from alibabacloud_agentidentitydata20251127.client import Client
     from darabonba.exceptions import TeaException
 
     async def reject_wat(client, request):  # type: ignore[no-untyped-def]
-        raise TeaException({"code": error_code, "message": "rejected", "data": {}})
+        raise TeaException({"code": error_code, "message": "WAT rejected; token=PRIVATE",
+                            "data": {"statusCode": 403, "RequestId": "req-identity"}})
 
     monkeypatch.setattr(Client, "get_resource_apikey_async", reject_wat)
     transport = AgentIdentityDataTransport()
@@ -160,6 +162,10 @@ async def test_agent_identity_transport_classifies_explicit_wat_rejection(
             provider_name="github-provider",
             workload_access_token="wat-expired",
         )
+    for field in ("GetResourceAPIKey", "github-provider", "req-identity", "403", "WAT rejected"):
+        assert field in caplog.text
+    assert "PRIVATE" not in caplog.text
+    assert "wat-expired" not in caplog.text
 
 
 @pytest.mark.asyncio

@@ -8,6 +8,7 @@ from typing import Any
 import anyio
 import httpx
 
+from agentcore._logging import exception_diagnostics, log_response_failure, safe_url
 from agentcore.auth.agent_sa_token import (
     AgentSATokenSource,
     get_agent_sa_token,
@@ -110,9 +111,13 @@ class WorkloadAccessTokenProvider:
                     follow_redirects=False,
                 )
             except httpx.TransportError as exc:
+                logger.warning("agentcore.wat.http.failed url=%s error_type=%s %s",
+                               safe_url(f"{self._endpoint}{_TOKEN_PATH}"),
+                               type(exc).__name__, exception_diagnostics(exc))
                 last_error = exc
                 retry_reason = type(exc).__name__
             else:
+                log_response_failure(logger, "agentcore.wat.http.failed", response)
                 if response.status_code not in {500, 502, 503, 504}:
                     return response
                 last_error = None

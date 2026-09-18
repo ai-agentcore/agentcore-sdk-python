@@ -16,6 +16,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 import anyio
 import httpx
 
+from agentcore._logging import exception_diagnostics, log_response_failure, safe_url
 from agentcore.errors import AuthenticationError, ConfigError, CredentialExchangeError
 from agentcore.runtime.config import MAX_CONFIG_BYTES, AgentConfig, parse_agent_config
 
@@ -166,9 +167,13 @@ class ControlConfigLoader:
                     follow_redirects=False,
                 )
             except httpx.TransportError as exc:
+                logger.warning("agentcore.control_config.sts.http.failed url=%s error_type=%s %s",
+                               safe_url(f"{self._controller_endpoint}{_CONTROL_STS_PATH}"),
+                               type(exc).__name__, exception_diagnostics(exc))
                 last_error = exc
                 retry_reason = type(exc).__name__
             else:
+                log_response_failure(logger, "agentcore.control_config.sts.http.failed", response)
                 if response.status_code not in {500, 502, 503, 504}:
                     return response
                 last_error = None

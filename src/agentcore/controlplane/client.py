@@ -19,6 +19,7 @@ from alibabacloud_tea_openapi import utils_models as openapi_utils
 from darabonba.exceptions import RetryError, UnretryableException  # type: ignore[import-untyped]
 from darabonba.runtime import RuntimeOptions  # type: ignore[import-untyped]
 
+from agentcore._logging import exception_diagnostics
 from agentcore.auth.access_key import AccessKeyCredential
 from agentcore.auth.resource_sts import HIGH_CODE_SDK_PURPOSE, ResourceCredential
 from agentcore.errors import (
@@ -435,12 +436,11 @@ async def _invoke_control_plane(operation: str, awaitable: Awaitable[Any]) -> An
         )
         logger.warning(
             "agentcore.control_plane.request.failed operation=%s error_type=%s "
-            "status=%s code=%s upstream_request_id=%s",
+            "upstream_request_id=%s %s",
             operation,
             type(exc).__name__,
-            getattr(exc, "status_code", None) or getattr(exc, "statusCode", None) or "-",
-            getattr(exc, "code", None) or "-",
             upstream_request_id or "-",
+            exception_diagnostics(exc),
         )
         raise InvocationError("AgentCore control-plane request failed") from exc
 
