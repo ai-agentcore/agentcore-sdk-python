@@ -208,5 +208,7 @@ uvicorn examples.langchain_server:server --host 0.0.0.0 --port 8080 --log-level 
 - 模型的工具调用、Responses 和 Embedding 支持情况取决于所选模型。
 - 仅加载可信 Skill；不需要执行命令时设置 `ALLOW_EXECUTE_COMMAND=false`。
 - 使用 `logging.basicConfig(level=logging.INFO)` 开启日志，不要记录 API Key 等敏感信息。
+- 排查模型、凭证或协作请求失败时，先查对应的 `*.failed` 日志中的地址、状态码、错误码和上游 RequestId，再结合脱敏后的错误说明定位。服务端未提供的字段显示为 `-`；日志不输出完整响应。`teams.update_ignored` 表示更新失败后沿用旧配置，`reason` 给出原因。
+- Memory 失败日志包含操作名、记忆空间、状态码、服务端错误码、RequestId 和经过脱敏、截断的错误说明；服务端未提供的字段显示为 `-`。框架自动记忆降级时也会记录这些诊断信息。`MemoryAPIError` 同时通过异常文本和属性保留诊断字段，不输出请求正文或完整响应。
 
 更多资源配置、框架依赖与运行命令见 [示例指南](examples/README.md)。

@@ -12,7 +12,69 @@ import pytest
 
 from agentcore import AsyncAgentCore
 from agentcore.auth import AccessKeyCredential
+from agentcore.errors import AddMemoriesOutcomeUnknownError, MemoryAPIError
 from agentcore.memory import MemoryScope
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status, header_only", [(200, False), (200, True), (403, False), (503, False)]
+)
+async def test_real_openapi_errors_keep_memory_diagnostics(status, header_only, caplog) -> None:
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            message = "Memory access denied; token=PRIVATE_TOKEN"
+            body = (
+                {"success": False, "httpStatusCode": 403, "code": "MemoryDenied",
+                 "requestId": "req-local", "message": message}
+                if status == 200 else
+                {"Code": "MemoryDenied", "RequestId": "req-local", "Message": message}
+            )
+            if header_only:
+                body.pop("requestId")
+            payload = json.dumps(body).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("X-ACS-REQUEST-ID", "req-local")
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, format: str, *args: Any) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    core = AsyncAgentCore.auto(
+        workspace_id="ws-test", region_id="cn-hangzhou",
+        control_plane_endpoint=f"http://127.0.0.1:{server.server_port}",
+        access_key_credential=AccessKeyCredential("test-ak", "test-sk"),
+    )
+    try:
+        store = core.memory_store("store-test")
+        with pytest.raises(MemoryAPIError) as raised:
+            await store.search_memories("PRIVATE_QUERY")
+        assert raised.value.http_status_code == (503 if status == 503 else 403)
+        assert raised.value.request_id == "req-local"
+        assert raised.value.service_code == "MemoryDenied"
+        for output in (str(raised.value), caplog.text):
+            assert "Memory access denied" in output
+            assert "req-local" in output
+            for secret in ("PRIVATE_TOKEN", "PRIVATE_QUERY", "test-sk"):
+                assert secret not in output
+        if status == 503:
+            with pytest.raises(AddMemoriesOutcomeUnknownError) as unknown:
+                await store.add_memories(text="PRIVATE_CONTENT")
+            assert unknown.value.request_id == "req-local"
+            assert "Memory access denied" in str(unknown.value)
+            assert "PRIVATE_CONTENT" not in caplog.text
+    finally:
+        await core.aclose()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
 
 @pytest.mark.asyncio

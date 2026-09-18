@@ -12,6 +12,7 @@ import pytest
 from alibabacloud_tea_openapi.exceptions import ClientException
 from Tea.exceptions import TeaException
 
+from agentcore._logging import safe_error_message
 from agentcore.controlplane import ModelDescriptor
 from agentcore.controlplane.client import _invoke_control_plane
 from agentcore.errors import InvocationError
@@ -20,6 +21,26 @@ from agentcore.mcp import AsyncMCPClient, MCPConnection
 from agentcore.mcp import client as mcp_module
 from agentcore.model import AsyncModelClient
 from agentcore.runtime.config import load_agent_config
+
+
+@pytest.mark.parametrize("value, expected", [
+    (None, None), ("", None), ("   ", None), (42, None),
+    ("Memory store unavailable", "Memory store unavailable"),
+    ("Denied\nRetry later\r\n", "Denied Retry later "),
+    ("Denied; Authorization: Bearer private", "Denied; <redacted>"),
+    ("Denied; api_key=private", "Denied; <redacted>"),
+    ("Denied; securityToken=private", "Denied; <redacted>"),
+    ("Denied; Bearer private", "Denied; <redacted>"),
+    ("Denied; Basic private", "Denied; <redacted>"),
+    ('Invalid query: "private content"', "Invalid <redacted>"),
+    ('Invalid {"messages": [{"content": "private"}]}', 'Invalid {"<redacted>'),
+    ("Denied LTAIfakeAccessKey", "Denied <redacted>"),
+    ("Denied eyJpayload.claims.signature", "Denied <redacted>"),
+    ("Failed https://user:pass@example.com?token=private", "Failed <url>"),
+    ("x" * 600, "x" * 512),
+])
+def test_service_error_messages_are_bounded_and_redacted(value, expected) -> None:
+    assert safe_error_message(value) == expected
 
 
 @pytest.mark.asyncio

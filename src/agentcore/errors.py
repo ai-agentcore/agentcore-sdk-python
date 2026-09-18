@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from agentcore._logging import safe_error_message
+
 
 class AgentCoreError(Exception):
     """Base error carrying a stable machine-readable code."""
@@ -71,12 +73,20 @@ class MemoryAPIError(AgentCoreError):
         service_code: str | None = None,
         http_status_code: int | None = None,
         request_id: str | None = None,
+        service_message: str | None = None,
     ) -> None:
         self.operation = operation
         self.service_code = service_code
         self.http_status_code = http_status_code
         self.request_id = request_id
-        super().__init__(self._safe_message(operation))
+        self.service_message = safe_error_message(service_message)
+        details = ", ".join(
+            f"{name}={value}" for name, value in (
+                ("status", http_status_code), ("service_code", service_code),
+                ("request_id", request_id), ("message", self.service_message),
+            ) if value is not None
+        )
+        super().__init__(self._safe_message(operation) + (f": {details}" if details else ""))
 
     def _safe_message(self, operation: str) -> str:
         return f"AgentCore Memory operation {operation} failed"
@@ -86,7 +96,7 @@ class MemoryAPIError(AgentCoreError):
             f"{type(self).__name__}(operation={self.operation!r}, "
             f"service_code={self.service_code!r}, "
             f"http_status_code={self.http_status_code!r}, "
-            f"request_id={self.request_id!r})"
+            f"request_id={self.request_id!r}, service_message={self.service_message!r})"
         )
 
 

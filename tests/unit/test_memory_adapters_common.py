@@ -44,10 +44,16 @@ async def test_independent_scope_fields_reach_framework_read_and_write(scope) ->
 async def test_only_automatic_remote_errors_are_best_effort(caplog) -> None:
     store = AsyncMock()
     store.memory_store_name = "memory"
-    store.search_memories.side_effect = MemoryAPIError("SearchMemories", request_id="upstream-1")
+    store.search_memories.side_effect = MemoryAPIError(
+        "SearchMemories", request_id="upstream-1", http_status_code=403,
+        service_code="Forbidden", service_message="Access denied; token=PRIVATE_TOKEN",
+    )
     scope = MemoryScope(agent_id="a")
     assert await recall(store, "private-query", scope, top_k=5, best_effort=True) == ""
     assert "upstream-1" in caplog.text
+    for field in ("SearchMemories", "403", "Forbidden", "Access denied"):
+        assert field in caplog.text
+    assert "PRIVATE_TOKEN" not in caplog.text
     assert "private-query" not in caplog.text
     with pytest.raises(MemoryAPIError):
         await recall(store, "query", scope, top_k=5)

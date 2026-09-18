@@ -192,3 +192,63 @@ def test_runtime_environment_requires_valid_task_service_endpoint(tmp_path: Path
     )
     with pytest.raises(ConfigError, match="Task Service Endpoint"):
         RuntimeEnvironmentProvider(env).task_service_endpoint()
+
+
+def test_collaboration_environment_fallback_and_file_refresh(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TEST_MATRIX_TOKEN", "process-token")
+    monkeypatch.setenv("AGENTCORE_TASK_SERVICE_ENDPOINT", "https://process.example.com")
+    env = tmp_path / "env"
+    provider = RuntimeEnvironmentProvider(env)
+    assert provider.value("TEST_MATRIX_TOKEN") == "process-token"
+    assert provider.task_service_endpoint() == "https://process.example.com"
+
+    for value in ("first", "rotated"):
+        env.write_text(
+            f"export TEST_MATRIX_TOKEN='{value}'\n"
+            f"export AGENTCORE_TASK_SERVICE_ENDPOINT='https://{value}.example.com'\n",
+            encoding="utf-8",
+        )
+        assert provider.value("TEST_MATRIX_TOKEN") == value
+        assert provider.task_service_endpoint() == f"https://{value}.example.com"
+
+    env.write_text("export UNUSED='value'\n", encoding="utf-8")
+    assert provider.value("TEST_MATRIX_TOKEN") == "process-token"
+    assert provider.task_service_endpoint() == "https://process.example.com"
+
+
+def test_missing_collaboration_env_still_requires_values(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in ("TEST_MATRIX_TOKEN", "AGENTCORE_TASK_SERVICE_ENDPOINT", "AGENTTEAMS_MATRIX_URL"):
+        monkeypatch.delenv(name, raising=False)
+    provider = RuntimeEnvironmentProvider(tmp_path / "missing")
+    with pytest.raises(ConfigError, match="TEST_MATRIX_TOKEN"):
+        provider.value("TEST_MATRIX_TOKEN")
+    with pytest.raises(ConfigError, match="AGENTCORE_TASK_SERVICE_ENDPOINT"):
+        provider.task_service_endpoint()
+
+
+@pytest.mark.parametrize("failure", ["malformed", "unreadable"])
+def test_collaboration_env_errors_do_not_fall_back(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+) -> None:
+    monkeypatch.setenv("TEST_MATRIX_TOKEN", "process-token")
+    monkeypatch.setenv("AGENTCORE_TASK_SERVICE_ENDPOINT", "https://process.example.com")
+    env = tmp_path / "env"
+    env.write_text("invalid assignment\n", encoding="utf-8")
+    if failure == "unreadable":
+
+        def denied(*args: object, **kwargs: object) -> str:
+            raise PermissionError("fixture denied")
+
+        monkeypatch.setattr(Path, "read_text", denied)
+    provider = RuntimeEnvironmentProvider(env)
+    for read in (lambda: provider.value("TEST_MATRIX_TOKEN"), provider.task_service_endpoint):
+        with pytest.raises(ConfigError):
+            read()

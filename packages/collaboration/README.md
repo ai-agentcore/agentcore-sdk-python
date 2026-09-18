@@ -86,6 +86,10 @@ async def stream_agent(headers, messages):
 
 应用退出时调用 `await core.aclose()`。这些接入函数不需要 `server` extra；安装协作和 LangChain extra，以及应用自己使用的 Web 框架即可。
 
+## 协作环境配置
+
+协作工具调用时重新读取运行时 env 文件（默认 `/var/run/agentcore/agent/env`）。任务服务地址和具名 Matrix Token 优先使用文件中的值，缺少的字段从进程环境变量补充。文件不存在时允许仅使用环境变量；必需字段仍缺失、文件无法读取或格式错误时，调用报错，不静默回退。文件中的凭证更新会在后续调用中生效，不会被旧的进程环境变量覆盖。
+
 ## 升级
 
 ```bash
