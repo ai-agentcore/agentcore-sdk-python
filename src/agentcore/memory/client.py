@@ -48,7 +48,7 @@ class AsyncMemoryStore:
         messages: Sequence[MemoryMessage] | None = None,
         metadata: Mapping[str, str] | None = None,
         reference_time: str | None = None,
-        sync: Literal[True] = True,
+        sync: Literal[True],
     ) -> AddMemoriesResult: ...
 
     @overload
@@ -60,7 +60,7 @@ class AsyncMemoryStore:
         messages: Sequence[MemoryMessage] | None = None,
         metadata: Mapping[str, str] | None = None,
         reference_time: str | None = None,
-        sync: Literal[False],
+        sync: Literal[False] = False,
     ) -> AddMemoriesSubmission: ...
 
     @overload
@@ -83,8 +83,9 @@ class AsyncMemoryStore:
         messages: Sequence[MemoryMessage] | None = None,
         metadata: Mapping[str, str] | None = None,
         reference_time: str | None = None,
-        sync: bool = True,
+        sync: bool = False,
     ) -> AddMemoriesResult | AddMemoriesSubmission:
+        """Submit extraction and return a task ID; use sync=True to wait for memory IDs."""
         validated_scope = _optional_scope(scope)
         has_text = text is not None
         has_messages = messages is not None

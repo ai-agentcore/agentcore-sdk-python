@@ -268,6 +268,7 @@ async def test_nine_actions_use_runtime_workspace_memory_store_sts_and_no_retry(
         scope=scope,
         text="remember",
         metadata={"kind": "fact"},
+        sync=True,
     )
     task = await harness.store.get_memory_task("task-1")
     searched = await harness.store.search_memories(
@@ -360,6 +361,7 @@ async def test_add_text_and_messages_map_to_wire_body_without_cross_mode_fields(
         scope=scope,
         text="remember",
         metadata={"kind": "text"},
+        sync=True,
     )
     text_body = json.loads(text_harness.client.calls[0].args[1].body["body"])
 
@@ -373,6 +375,7 @@ async def test_add_text_and_messages_map_to_wire_body_without_cross_mode_fields(
 
     message_harness = _harness()
     await message_harness.store.add_memories(
+        sync=True,
         scope=scope,
         messages=[
             MemoryMessage(
@@ -393,7 +396,8 @@ async def test_add_text_and_messages_map_to_wire_body_without_cross_mode_fields(
 
 
 @pytest.mark.asyncio
-async def test_async_add_returns_submission_and_maps_reference_time_once() -> None:
+@pytest.mark.parametrize("options", [{}, {"sync": False}])
+async def test_async_add_returns_submission_and_maps_reference_time_once(options) -> None:
     harness = _harness(
         {
             "AddMemories": SimpleNamespace(
@@ -410,7 +414,7 @@ async def test_async_add_returns_submission_and_maps_reference_time_once() -> No
     result = await harness.store.add_memories(
         text="昨天去了杭州",
         reference_time="2024-06-08T12:30:00+08:00",
-        sync=False,
+        **options,
     )
 
     assert result == AddMemoriesSubmission(task_id="task-async")
@@ -553,7 +557,7 @@ async def test_add_allows_omitted_and_independent_scope_fields(
 ) -> None:
     harness = _harness()
 
-    await harness.store.add_memories(scope=scope, text="remember")
+    await harness.store.add_memories(scope=scope, text="remember", sync=True)
 
     wire_scope = json.loads(harness.client.calls[0].args[1].body["body"]).get("scope")
     if expected is None:
@@ -823,7 +827,7 @@ async def test_empty_add_search_and_pages_preserve_contractual_empty_results() -
     harness = _harness(responses)
     scope = MemoryScope(agent_id="agent", session_id="session")
 
-    added = await harness.store.add_memories(scope=scope, text="text")
+    added = await harness.store.add_memories(scope=scope, text="text", sync=True)
     searched = await harness.store.search_memories("query")
     page = await harness.store.list_memories()
 
@@ -923,6 +927,7 @@ async def test_malformed_add_success_response_is_outcome_unknown() -> None:
         await harness.store.add_memories(
             scope=MemoryScope(agent_id="agent", session_id="session"),
             text="text",
+            sync=True,
         )
 
     assert raised.value.request_id == "request-malformed-add"

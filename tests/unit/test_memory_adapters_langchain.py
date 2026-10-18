@@ -19,7 +19,7 @@ from agentcore.errors import MemoryAPIError, MemoryValidationError
 from agentcore.integrations.memory import MemoryScopes
 from agentcore.integrations.memory.langchain import AgentCoreMemoryMiddleware, message_text
 from agentcore.memory import (
-    AddMemoriesResult,
+    AddMemoriesSubmission,
     Memory,
     MemoryContent,
     MemoryMessage,
@@ -57,7 +57,7 @@ def make_store():
         )
 
     store.search_memories.side_effect = search
-    store.add_memories.return_value = AddMemoriesResult()
+    store.add_memories.return_value = AddMemoriesSubmission(task_id="task-1")
     return store
 
 
@@ -86,6 +86,7 @@ async def test_user_only_scope_recall_and_write_back():
     store.add_memories.assert_awaited_once_with(
         scope=scope,
         messages=[MemoryMessage("user", "question"), MemoryMessage("assistant", "answer")],
+        sync=False,
     )
 
 

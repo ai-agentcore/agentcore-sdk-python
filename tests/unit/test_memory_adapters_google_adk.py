@@ -20,7 +20,7 @@ from pydantic import Field
 
 from agentcore.integrations.memory.google_adk import AgentCoreMemoryService
 from agentcore.memory import (
-    AddMemoriesResult,
+    AddMemoriesSubmission,
     Memory,
     MemoryContent,
     MemoryMessage,
@@ -52,7 +52,7 @@ def make_store():
             )
         ]
     )
-    store.add_memories.return_value = AddMemoriesResult()
+    store.add_memories.return_value = AddMemoriesSubmission(task_id="task-1")
     return store
 
 
@@ -96,6 +96,7 @@ async def test_real_adk_runner_preloads_and_explicitly_saves_turn_delta():
                 session_id=session_id,
                 events=[event, *emitted],
             )
+            assert store.add_memories.await_args.kwargs["sync"] is False
             assert store.add_memories.await_args.kwargs["scope"] == MemoryScope(
                 agent_id=f"app/{user}",
                 session_id=session_id,
@@ -180,7 +181,8 @@ async def test_adk_session_import_validation_and_text_filtering():
 
 
 @pytest.mark.asyncio
-async def test_documented_adk_example():
+async def test_documented_adk_example(caplog):
+    caplog.set_level("INFO", logger="agentcore.integrations.memory.google_adk")
     module = runpy.run_path(
         str(Path(__file__).parents[2] / "examples/memory_frameworks/google_adk_agent.py")
     )
@@ -194,6 +196,9 @@ async def test_documented_adk_example():
     assert events[-1].is_final_response()
     assert store.search_memories.await_count == 1
     assert store.add_memories.await_count == 1
+    assert store.add_memories.await_args.kwargs["sync"] is False
+    assert "write.submitted store=memory task_id=task-1" in caplog.text
+    store.get_memory_task.assert_not_called()
     assert store.add_memories.await_args.kwargs["scope"] == MemoryScope(
         agent_id="a", session_id="s"
     )

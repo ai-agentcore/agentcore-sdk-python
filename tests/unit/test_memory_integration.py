@@ -141,7 +141,7 @@ async def test_async_core_explicit_credential_covers_nine_actions_without_runtim
     assert all(
         args[0].pathname.startswith("/workspaces/workspace-explicit/") for _, args in client.calls
     )
-    assert isinstance(results[0], AddMemoriesResult)
+    assert results[0] == AddMemoriesSubmission(task_id="task-1")
     assert isinstance(results[1], MemoryTask)
     assert isinstance(results[2], SearchMemoriesResult)
     assert isinstance(results[3], Page)
@@ -220,8 +220,8 @@ def test_sync_memory_store_reuses_portal_and_returns_async_domain_types(
     portal = core._portal
     scope = MemoryScope(agent_id="agent-1", session_id="session-1", user_id="user-1")
 
-    added = store.add_memories(scope=scope, text="text")
-    submission = store.add_memories(text="async", sync=False)
+    added = store.add_memories(scope=scope, text="text", sync=True)
+    submission = store.add_memories(text="async")
     task = store.get_memory_task("task-1")
     searched = store.search_memories("query", scope=MemoryScope(session_id="session-1"))
     memories = store.list_memories(agent_id="agent-1")

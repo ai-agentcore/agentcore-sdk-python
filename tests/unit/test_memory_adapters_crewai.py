@@ -17,7 +17,7 @@ from agentcore.errors import MemoryAPIError, MemoryValidationError
 from agentcore.integrations.memory import MemoryScopes
 from agentcore.integrations.memory.crewai import AgentCoreTaskMemory
 from agentcore.memory import (
-    AddMemoriesResult,
+    AddMemoriesSubmission,
     Memory,
     MemoryContent,
     MemoryMessage,
@@ -51,7 +51,7 @@ def make_store():
         )
 
     store.search_memories.side_effect = search
-    store.add_memories.return_value = AddMemoriesResult()
+    store.add_memories.return_value = AddMemoriesSubmission(task_id="task-1")
     return store
 
 
@@ -78,7 +78,7 @@ async def test_real_crewai_task_callback_uses_owner_loop_and_original_query(meth
 
     async def add(**kwargs):
         assert asyncio.get_running_loop() is owner
-        return AddMemoriesResult()
+        return AddMemoriesSubmission(task_id="task-1")
 
     store.add_memories.side_effect = add
     adapter = AgentCoreTaskMemory(store, write_back=True)
@@ -92,6 +92,7 @@ async def test_real_crewai_task_callback_uses_owner_loop_and_original_query(meth
     store.add_memories.assert_awaited_once_with(
         scope=scopes("alice").write,
         messages=[MemoryMessage("user", "question"), MemoryMessage("assistant", "answer")],
+        sync=False,
     )
 
 

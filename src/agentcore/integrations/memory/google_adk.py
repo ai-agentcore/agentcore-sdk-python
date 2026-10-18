@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping, Sequence
 
 from google.adk.events import Event
@@ -12,6 +13,8 @@ from google.genai import types
 
 from agentcore.integrations.memory._common import validate_scope, validate_top_k
 from agentcore.memory import AsyncMemoryStore, MemoryMessage, MemoryScope, MemoryValidationError
+
+logger = logging.getLogger(__name__)
 
 
 def _messages(events: Sequence[Event]) -> list[MemoryMessage]:
@@ -104,4 +107,11 @@ class AgentCoreMemoryService(BaseMemoryService):  # type: ignore[misc,unused-ign
                 metadata[key] = value
         messages = _messages(events)
         if messages:
-            await self._store.add_memories(scope=scope, messages=messages, metadata=metadata)
+            result = await self._store.add_memories(
+                scope=scope, messages=messages, metadata=metadata, sync=False,
+            )
+            logger.info(
+                "agentcore.memory.adapter.write.submitted store=%s task_id=%s",
+                self._store.memory_store_name,
+                result.task_id,
+            )

@@ -20,7 +20,7 @@ from pydantic import SecretStr
 from agentcore.integrations.memory import MemoryScopes
 from agentcore.integrations.memory.agentscope import AgentCoreMemoryMiddleware
 from agentcore.memory import (
-    AddMemoriesResult,
+    AddMemoriesSubmission,
     Memory,
     MemoryContent,
     MemoryMessage,
@@ -46,7 +46,7 @@ def make_store():
         )
 
     store.search_memories.side_effect = search
-    store.add_memories.return_value = AddMemoriesResult()
+    store.add_memories.return_value = AddMemoriesSubmission(task_id="task-1")
     return store
 
 
@@ -114,6 +114,8 @@ async def test_real_agentscope_reply_and_stream_do_not_pollute_history():
             pass
         assert store.search_memories.await_count == 2
         assert store.add_memories.await_count == 2
+        assert all(call.kwargs["sync"] is False for call in store.add_memories.await_args_list)
+        store.get_memory_task.assert_not_called()
         assert store.add_memories.await_args.kwargs["messages"] == [
             MemoryMessage("user", "question two"),
             MemoryMessage("assistant", "answer"),

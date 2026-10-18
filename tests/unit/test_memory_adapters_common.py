@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from unittest.mock import AsyncMock
 
 import pytest
@@ -8,7 +9,7 @@ import pytest
 from agentcore.errors import MemoryAPIError, MemoryValidationError
 from agentcore.integrations.memory import MemoryScopes
 from agentcore.integrations.memory._common import recall, record
-from agentcore.memory import MemoryMessage, MemoryScope, SearchMemoriesResult
+from agentcore.memory import AddMemoriesSubmission, MemoryMessage, MemoryScope, SearchMemoriesResult
 
 
 def test_scopes_require_explicit_non_empty_ranges() -> None:
@@ -33,11 +34,26 @@ async def test_independent_scope_fields_reach_framework_read_and_write(scope) ->
     store = AsyncMock()
     store.memory_store_name = "memory"
     store.search_memories.return_value = SearchMemoriesResult()
+    store.add_memories.return_value = AddMemoriesSubmission(task_id="task-1")
     messages = [MemoryMessage("user", "question")]
     await recall(store, "query", scopes.read, top_k=5)
     await record(store, messages, scopes.require_write())
     store.search_memories.assert_awaited_once_with("query", scope=scope, top_k=5)
-    store.add_memories.assert_awaited_once_with(scope=scope, messages=messages)
+    store.add_memories.assert_awaited_once_with(scope=scope, messages=messages, sync=False)
+
+
+@pytest.mark.asyncio
+async def test_write_back_logs_submission_without_polling_or_claiming_completion(caplog) -> None:
+    store = AsyncMock()
+    store.memory_store_name = "memory"
+    store.add_memories.return_value = AddMemoriesSubmission(task_id="task-1")
+    with caplog.at_level(logging.INFO):
+        await record(store, [MemoryMessage("user", "private-content")], MemoryScope(user_id="u"))
+    assert "agentcore.memory.adapter.write.submitted" in caplog.text
+    assert "task_id=task-1" in caplog.text
+    assert "write.succeeded" not in caplog.text
+    assert "private-content" not in caplog.text
+    store.get_memory_task.assert_not_called()
 
 
 @pytest.mark.asyncio

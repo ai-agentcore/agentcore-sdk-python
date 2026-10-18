@@ -14,7 +14,7 @@ from pydantic_ai.models.function import FunctionModel
 from agentcore.integrations.memory import MemoryScopes
 from agentcore.integrations.memory.pydantic_ai import AgentCoreMemoryCapability
 from agentcore.memory import (
-    AddMemoriesResult,
+    AddMemoriesSubmission,
     Memory,
     MemoryContent,
     MemoryMessage,
@@ -36,7 +36,7 @@ def make_store():
         )
 
     store.search_memories.side_effect = search
-    store.add_memories.return_value = AddMemoriesResult()
+    store.add_memories.return_value = AddMemoriesSubmission(task_id="task-1")
     return store
 
 
@@ -74,6 +74,8 @@ async def test_pydantic_real_tool_loop_and_new_turn_only():
     assert store.search_memories.await_count == 2
     assert all("original" in text and text.count("fact-alice") == 1 for text in seen)
     assert store.add_memories.await_count == 2
+    assert all(call.kwargs["sync"] is False for call in store.add_memories.await_args_list)
+    store.get_memory_task.assert_not_called()
     assert store.add_memories.await_args.kwargs["messages"] == [
         MemoryMessage("user", "question two"),
         MemoryMessage("assistant", "answer"),

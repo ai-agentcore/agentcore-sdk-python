@@ -16,7 +16,7 @@ from agentcore.integrations.memory.langgraph import (
     with_memory,
 )
 from agentcore.memory import (
-    AddMemoriesResult,
+    AddMemoriesSubmission,
     Memory,
     MemoryContent,
     MemoryMessage,
@@ -41,7 +41,7 @@ async def test_real_graph_explicit_memory_nodes_and_tool_loop():
             MemorySearchHit(Memory("id", MemoryContent("historical fact"), scope), 1, 1),
         ]
     )
-    store.add_memories.return_value = AddMemoriesResult()
+    store.add_memories.return_value = AddMemoriesSubmission(task_id="task-1")
     nodes = AgentCoreMemoryNodes(store)
     seen = []
 
@@ -78,6 +78,8 @@ async def test_real_graph_explicit_memory_nodes_and_tool_loop():
     assert store.search_memories.await_count == 1
     assert store.search_memories.await_args.args == ("explicit current query",)
     assert store.add_memories.await_count == 1
+    assert store.add_memories.await_args.kwargs["sync"] is False
+    store.get_memory_task.assert_not_called()
     assert len(seen) == 2 and "historical fact" in seen[0][0].content
     assert original[0].content == "original"
     assert result["memory_messages"] == []

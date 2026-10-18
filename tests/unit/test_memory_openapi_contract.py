@@ -100,6 +100,7 @@ async def test_public_calls_need_only_common_request_with_exact_wire_contract() 
             )
         ],
         metadata={"kind": "dialogue"},
+        sync=True,
     )
     await store.search_memories(
         "find this",

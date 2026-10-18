@@ -13,7 +13,7 @@ import pytest
 from agentcore import AsyncAgentCore
 from agentcore.auth import AccessKeyCredential
 from agentcore.errors import AddMemoriesOutcomeUnknownError, MemoryAPIError
-from agentcore.memory import MemoryScope
+from agentcore.memory import AddMemoriesResult, AddMemoriesSubmission, MemoryScope
 
 
 @pytest.mark.asyncio
@@ -78,7 +78,8 @@ async def test_real_openapi_errors_keep_memory_diagnostics(status, header_only, 
 
 
 @pytest.mark.asyncio
-async def test_common_requests_are_signed_and_use_memory_wire_contract() -> None:
+@pytest.mark.parametrize("options", [{}, {"sync": False}, {"sync": True}])
+async def test_common_requests_are_signed_and_use_memory_wire_contract(options) -> None:
     calls: list[tuple[str, str, dict[str, str], bytes]] = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -89,7 +90,11 @@ async def test_common_requests_are_signed_and_use_memory_wire_contract() -> None
             action = headers["x-acs-action"]
             body: dict[str, Any] = {"success": True, "requestId": "local-request"}
             if action == "AddMemories":
-                body["data"] = {"memories": [{"memoryId": "memory-1"}]}
+                request_body = json.loads(parse_qs(raw.decode())["body"][0])
+                body["data"] = (
+                    {"memories": [{"memoryId": "memory-1"}]}
+                    if request_body["sync"] else {"taskId": "task-1"}
+                )
             elif action == "SearchMemories":
                 body["data"] = {"memories": []}
             elif action in {"GetMemory", "UpdateMemory"}:
@@ -127,8 +132,13 @@ async def test_common_requests_are_signed_and_use_memory_wire_contract() -> None
     )
     try:
         store = core.memory_store("store /中文")
-        result = await store.add_memories(text="记住", scope=MemoryScope(user_id="user-1"))
-        assert result.memory_ids == ("memory-1",)
+        result = await store.add_memories(
+            text="记住", scope=MemoryScope(user_id="user-1"), **options,
+        )
+        assert result == (
+            AddMemoriesResult(memory_ids=("memory-1",))
+            if options.get("sync", False) else AddMemoriesSubmission(task_id="task-1")
+        )
         await store.search_memories("query", enable_rerank=False, min_score=0.0)
         await store.list_memories(user_id="user-1", max_results=5, next_token="a +/=")
         await store.get_memory("id /中文")
@@ -153,7 +163,7 @@ async def test_common_requests_are_signed_and_use_memory_wire_contract() -> None
     assert calls[0][2]["content-type"].startswith("application/x-www-form-urlencoded")
     assert json.loads(parse_qs(calls[0][3].decode())["body"][0]) == {
         "text": "记住",
-        "sync": True,
+        "sync": options.get("sync", False),
         "scope": {"userId": "user-1"},
     }
     assert json.loads(parse_qs(calls[1][3].decode())["body"][0]) == {

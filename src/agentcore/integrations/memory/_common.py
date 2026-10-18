@@ -99,16 +99,16 @@ async def record(
         len(messages),
     )
     try:
-        result = await store.add_memories(scope=scope, messages=messages)
+        result = await store.add_memories(scope=scope, messages=messages, sync=False)
     except (MemoryAPIError, MemoryContractError) as exc:
         log_failure("write", store, exc, started)
         if not best_effort:
             raise
         return
     logger.info(
-        "agentcore.memory.adapter.write.succeeded store=%s count=%s elapsed_ms=%s",
+        "agentcore.memory.adapter.write.submitted store=%s task_id=%s elapsed_ms=%s",
         store.memory_store_name,
-        len(result.memory_ids),
+        result.task_id,
         elapsed_ms(started),
     )
 

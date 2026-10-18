@@ -136,18 +136,14 @@ from agentcore.memory import MemoryScope
 async def main():
     async with AsyncAgentCore.auto() as core:
         store = core.memory_store("test-memory")
-        await store.add_memories(
+        # 默认异步提交：收到 task_id 即返回，不等待服务端完成记忆提取。
+        submission = await store.add_memories(
             scope=MemoryScope(user_id="example-user", session_id="session-1"),
             text="用户喜欢简短的中文回答。",
         )
+        print(submission.task_id)
 
-        # 也可以快速异步受理。保存 task_id，并显式查询任务；SDK 不会自动轮询或重提 Add。
-        submission = await store.add_memories(
-            scope=MemoryScope(user_id="example-user", session_id="session-2"),
-            text="昨天完成了项目评审。",
-            reference_time="2026-09-18T10:00:00+08:00",
-            sync=False,
-        )
+        # 按需查询任务；SDK 不会自动轮询。
         task = await store.get_memory_task(submission.task_id)
         print(task.status, task.memory_ids, task.error)
 
@@ -168,7 +164,8 @@ if __name__ == "__main__":
 - `user_id`、`agent_id`、`session_id` 是彼此独立的记忆范围字段；写入时都可省略，服务端会将未传字段归入默认范围。
 - 查询时只传需要精确匹配的字段，未传字段按通配范围查询；响应中的默认范围字段会表现为 `None`。
 - `list_memory_session_messages` 要求 `session_id`，并且 `user_id`、`agent_id` 至少传一个。
-- `add_memories` 省略 `sync` 时保持同步并返回 `AddMemoriesResult`；`sync=False` 返回 `AddMemoriesSubmission(task_id)`，随后由调用方使用 `get_memory_task` 查询。`PENDING`/`RUNNING` 可稍后再查，`SUCCEEDED` 使用 `memory_ids`，`FAILED`/`UNKNOWN` 查看受控 `error`；`UNKNOWN`、超时或连接断开时不要自动重提 Add。
+- `add_memories` 默认 `sync=False`，返回 `AddMemoriesSubmission(task_id)`，表示任务已受理，不代表记忆提取完成。可用 `get_memory_task` 查询：`PENDING`/`RUNNING` 表示仍在处理，`SUCCEEDED` 返回 `memory_ids`，`FAILED`/`UNKNOWN` 可查看 `error`。结果未知、超时或连接断开时不要自动重提 Add。
+- 需要等待提取结果时，显式传 `sync=True`，返回 `AddMemoriesResult(memory_ids)`。已有代码若直接读取 `memory_ids`，请补上 `sync=True`，或改用任务查询。此默认值同时适用于 `AsyncAgentCore` 和同步的 `AgentCore`。
 - `reference_time` 是可选的带时区 RFC3339 字符串，原样传给服务端，用于解释文本中的相对时间。
 - MemoryStore 的 `extractInstructions` 由控制面配置，只影响后续写入；本数据面客户端不提供 MemoryStore CRUD，也不会重处理已有记忆。
 - 分区标识由可信业务上下文提供，不替代访问权限控制。

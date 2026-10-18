@@ -845,7 +845,7 @@ class _SyncMemoryStore:
         messages: Sequence[MemoryMessage] | None = None,
         metadata: Mapping[str, str] | None = None,
         reference_time: str | None = None,
-        sync: Literal[True] = True,
+        sync: Literal[True],
     ) -> AddMemoriesResult: ...
 
     @overload
@@ -857,7 +857,7 @@ class _SyncMemoryStore:
         messages: Sequence[MemoryMessage] | None = None,
         metadata: Mapping[str, str] | None = None,
         reference_time: str | None = None,
-        sync: Literal[False],
+        sync: Literal[False] = False,
     ) -> AddMemoriesSubmission: ...
 
     @overload
@@ -880,8 +880,9 @@ class _SyncMemoryStore:
         messages: Sequence[MemoryMessage] | None = None,
         metadata: Mapping[str, str] | None = None,
         reference_time: str | None = None,
-        sync: bool = True,
+        sync: bool = False,
     ) -> AddMemoriesResult | AddMemoriesSubmission:
+        """Submit extraction and return a task ID; use sync=True to wait for memory IDs."""
         with self._operation():
             return self._portal.call(
                 partial(
