@@ -67,6 +67,12 @@ class SkillArtifact:
 
 
 @dataclass(frozen=True)
+class TemplateArtifact:
+    version: str
+    archive: bytes
+
+
+@dataclass(frozen=True)
 class CredentialMetadata:
     credential_id: str
     name: str
@@ -251,6 +257,70 @@ class AgentCoreControlPlane:
             version=resolved_version,
             archive=archive,
         )
+
+    async def resolve_skill_version(self, name: str, selector_type: str, value: str) -> str:
+        if selector_type == "VERSION":
+            return value
+        client = await self._client()
+        response = await self._invoke(
+            client, "get_skill_detail", self.workspace_id, name, models.GetSkillDetailRequest()
+        )
+        data = _field(_field(response, "body"), "data")
+        if value == "HEAD" and any(
+            _field(item, "version") == "HEAD" for item in (_field(data, "versions") or [])
+        ):
+            return "HEAD"
+        labels = _field(data, "labels") or {}
+        selected = labels.get(value) if isinstance(labels, Mapping) else None
+        if not isinstance(selected, str) or not selected:
+            raise ResourceNotConfiguredError(f"Skill {name!r} has no label {value!r}")
+        return selected
+
+    async def get_template(self, name: str, version: str | None = None) -> TemplateArtifact:
+        client = await self._client()
+        path = f"/workspaces/{quote(self.workspace_id, safe='')}/agent-specs/{quote(name, safe='')}"
+
+        async def request(action: str, suffix: str, query: dict[str, str]) -> Any:
+            params = openapi_utils.Params(
+                action=action,
+                version="2026-08-04",
+                protocol="HTTPS",
+                pathname=path + suffix,
+                method="GET",
+                auth_type="AK",
+                style="ROA",
+                req_body_type="json",
+                body_type="json",
+            )
+            req = openapi_utils.OpenApiRequest(query=query)
+            response = await self._request(
+                client,
+                action,
+                lambda: client.call_api_async(params, req, RuntimeOptions(autoretry=False)),
+            )
+            return _field(_field(response, "body"), "data")
+
+        if version is None:
+            detail = await request("GetAgentSpec", "", {})
+            labels = _field(detail, "labels") or {}
+            version = labels.get("latest") if isinstance(labels, Mapping) else None
+            if not isinstance(version, str) or not version:
+                raise ResourceNotConfiguredError(f"Agent template {name!r} has no latest version")
+        url = await request(
+            "DownloadAgentSpecViaOss", "/actions/download-via-oss", {"agentSpecVersion": version}
+        )
+        if not isinstance(url, str) or not _valid_download_url(url):
+            raise ConfigError("AgentCore returned an invalid Agent template download URL")
+        if self._http is not None:
+            archive = await _read_skill_archive(
+                self._http, url, resource="Agent template", max_bytes=50 * 1024 * 1024
+            )
+        else:
+            async with httpx.AsyncClient(timeout=30) as http:
+                archive = await _read_skill_archive(
+                    http, url, resource="Agent template", max_bytes=50 * 1024 * 1024
+                )
+        return TemplateArtifact(version, archive)
 
     async def resolve_credential(self, name: str) -> CredentialMetadata:
         client = await self._client()
@@ -563,11 +633,19 @@ def _valid_download_url(value: str) -> bool:
     return parsed.scheme in {"http", "https"} and bool(parsed.hostname)
 
 
-async def _read_skill_archive(client: httpx.AsyncClient, url: str) -> bytes:
+async def _read_skill_archive(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    resource: str = "Skill",
+    max_bytes: int = _MAX_SKILL_ARCHIVE_BYTES,
+) -> bytes:
     candidate = url
     while True:
         try:
-            archive = await _read_skill_archive_once(client, candidate)
+            archive = await _read_skill_archive_once(
+                client, candidate, resource=resource, max_bytes=max_bytes
+            )
         except httpx.HTTPError as exc:
             status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
             retryable = isinstance(exc, httpx.TransportError) or (
@@ -576,9 +654,9 @@ async def _read_skill_archive(client: httpx.AsyncClient, url: str) -> bytes:
             fallback = _internal_oss_url(url) if candidate == url and retryable else None
             if fallback is None:
                 message = (
-                    f"Skill package download failed with HTTP {status}"
+                    f"{resource} package download failed with HTTP {status}"
                     if status is not None
-                    else "Skill package download failed"
+                    else f"{resource} package download failed"
                 )
                 if isinstance(exc, httpx.HTTPStatusError):
                     # HTTPStatusError embeds the presigned URL in its message.
@@ -622,7 +700,13 @@ def _internal_oss_url(url: str) -> str | None:
     return parsed._replace(netloc=netloc).geturl()
 
 
-async def _read_skill_archive_once(client: httpx.AsyncClient, url: str) -> bytes:
+async def _read_skill_archive_once(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    resource: str = "Skill",
+    max_bytes: int = _MAX_SKILL_ARCHIVE_BYTES,
+) -> bytes:
     parsed = urlsplit(url)
     logger.debug(
         "agentcore.control_plane.skill.download.started host=%s path=%s",
@@ -636,8 +720,11 @@ async def _read_skill_archive_once(client: httpx.AsyncClient, url: str) -> bytes
             data = bytearray()
             async for chunk in response.aiter_bytes():
                 data.extend(chunk)
-                if len(data) > _MAX_SKILL_ARCHIVE_BYTES:
-                    raise ConfigError("Skill package exceeds the 10 MiB size limit")
+                if len(data) > max_bytes:
+                    raise ConfigError(
+                        f"{resource} package exceeds the "
+                        f"{max_bytes // (1024 * 1024)} MiB size limit"
+                    )
     except httpx.HTTPError as exc:
         error_response = exc.response if isinstance(exc, httpx.HTTPStatusError) else None
         logger.warning(
@@ -652,7 +739,7 @@ async def _read_skill_archive_once(client: httpx.AsyncClient, url: str) -> bytes
         )
         raise
     if not data:
-        raise ConfigError("Skill package is empty")
+        raise ConfigError(f"{resource} package is empty")
     logger.debug(
         "agentcore.control_plane.skill.download.succeeded host=%s bytes=%s",
         parsed.netloc,

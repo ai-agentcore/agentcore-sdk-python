@@ -54,6 +54,7 @@ from agentcore.runtime.startup import (
     create_runtime_source,
 )
 from agentcore.skill import AsyncSkills
+from agentcore.templates import AgentTemplate, AsyncTemplates
 
 if TYPE_CHECKING:
     from agentcore_collaboration import Collaboration
@@ -96,6 +97,7 @@ def _explicit_resource_context(
 
 class AsyncCoreProtocol(Protocol):
     skills: Any
+    templates: Any
     credentials: Any
     collaboration: Any
 
@@ -180,6 +182,9 @@ class AsyncAgentCore:
             None,
             workspace_dir=skill_workspace_dir,
             _runtime_provider=self._skill_runtime,
+        )
+        self._templates = AsyncTemplates(
+            self._template_runtime, self._skills, workspace_dir=skill_workspace_dir
         )
         self._credentials = AsyncBoundCredentials(
             "",
@@ -309,6 +314,11 @@ class AsyncAgentCore:
     def skills(self) -> AsyncSkills:
         self._ensure_open()
         return self._skills
+
+    @property
+    def templates(self) -> AsyncTemplates:
+        self._ensure_open()
+        return self._templates
 
     @property
     def credentials(self) -> AsyncBoundCredentials:
@@ -542,6 +552,10 @@ class AsyncAgentCore:
         context = await self._ensure_resource_context()
         return self._control_plane, context.workspace_id
 
+    async def _template_runtime(self) -> tuple[AgentCoreControlPlane | None, str | None]:
+        self._ensure_open()
+        return await self._skill_runtime()
+
     async def _credential_runtime(
         self,
     ) -> tuple[
@@ -717,6 +731,11 @@ class AgentCore:
     def skills(self) -> _SyncSkills:
         with self._lock:
             return _SyncSkills(self._get().skills, self._portal_required(), self._operation)
+
+    @property
+    def templates(self) -> _SyncTemplates:
+        with self._lock:
+            return _SyncTemplates(self._get().templates, self._portal_required(), self._operation)
 
     @property
     def credentials(self) -> _SyncCredentials:
@@ -1104,6 +1123,43 @@ class _SyncSkills:
     def managed(self, name: str, *, version: str | None = None) -> Any:
         with self._operation():
             return self._portal.call(partial(self._skills.managed, name, version=version))
+
+
+class _SyncTemplate:
+    def __init__(
+        self, template: AgentTemplate, portal: BlockingPortal, operation: OperationScope
+    ) -> None:
+        self._template = template
+        self._portal = portal
+        self._operation = operation
+
+    @property
+    def name(self) -> str:
+        return self._template.name
+
+    @property
+    def version(self) -> str:
+        return self._template.version
+
+    @property
+    def instruction(self) -> str:
+        return self._template.instruction
+
+    def load_skills(self) -> list[Any]:
+        with self._operation():
+            return cast(list[Any], self._portal.call(self._template.load_skills))
+
+
+class _SyncTemplates:
+    def __init__(self, templates: Any, portal: BlockingPortal, operation: OperationScope) -> None:
+        self._templates = templates
+        self._portal = portal
+        self._operation = operation
+
+    def get(self, name: str, *, version: str | None = None) -> _SyncTemplate:
+        with self._operation():
+            template = self._portal.call(partial(self._templates.get, name, version=version))
+            return _SyncTemplate(template, self._portal, self._operation)
 
 
 class _SyncCredentials:
