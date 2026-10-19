@@ -6,6 +6,7 @@ from agentcore.controlplane.client import (
     MCPDescriptor,
     ModelDescriptor,
     SkillArtifact,
+    TemplateArtifact,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "MCPDescriptor",
     "ModelDescriptor",
     "SkillArtifact",
+    "TemplateArtifact",
 ]

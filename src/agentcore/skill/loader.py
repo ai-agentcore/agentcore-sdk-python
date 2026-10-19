@@ -220,6 +220,14 @@ def _materialize(
         "version": artifact.version,
         "digest": artifact.digest,
     }
+    return _materialize_directory(target, artifact, metadata)
+
+
+def _materialize_directory(
+    target: Path,
+    artifact: _PreparedSkill,
+    metadata: Mapping[str, str],
+) -> Path:
     with _MATERIALIZE_LOCK:
         if _materialized_artifact_matches(target, metadata):
             return target
@@ -228,7 +236,7 @@ def _materialize(
             target.unlink()
         elif target.is_dir():
             shutil.rmtree(target)
-        temporary = Path(tempfile.mkdtemp(prefix=".skill-", dir=workspace))
+        temporary = Path(tempfile.mkdtemp(prefix=".skill-", dir=target.parent))
         try:
             for resource_name, content in artifact.files.items():
                 path = temporary.joinpath(*PurePosixPath(resource_name).parts)

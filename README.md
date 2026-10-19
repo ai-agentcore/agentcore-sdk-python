@@ -122,6 +122,21 @@ asyncio.run(main())
 
 本地 Skill 加载方式及完整配置见 [自定义资源示例](examples/direct_resources.py)。
 
+## 使用 Agent 模版
+
+在当前 Workspace 中准备一个已发布的 Agent 模版，并授予应用相应的模版和 Skill 读取权限：
+
+```python
+async with AsyncAgentCore.auto() as core:
+    template = await core.templates.get("my-agent-template", version="1.0.0")
+    instruction = template.instruction
+    skills = await template.load_skills()
+```
+
+`instruction` 是模版主 Agent 的 Prompt 字符串。`load_skills()` 按需加载随包 Skill 和引用的云端 Skill，返回现有 `Skill` 对象，可直接交给各框架的 `skill_tools()`。模型由应用独立配置。
+
+省略模版版本时使用 `latest` 标签；同一个模版对象成功加载 Skill 后会复用结果，不自动跟随引用标签变化。同步 `AgentCore` 提供相同入口，无需 `await`。请在 Core 的生命周期内加载和使用 Skill。完整用法见 [Agent 模版示例](examples/agent_template.py)。
+
 ## 使用 Memory
 
 Memory 用于保存和检索长期记忆，也支持查询、更新、删除记忆以及查看会话消息。使用前，在 AgentCore 中创建 MemoryStore 并授予应用访问权限。

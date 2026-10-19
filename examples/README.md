@@ -26,6 +26,7 @@
 | 示例 | 所需 extras | 运行命令 |
 | --- | --- | --- |
 | [云端资源](cloud_resources.py) | `mcp` | `python -m examples.cloud_resources` |
+| [Agent 模版与 LangChain](agent_template.py) | `langchain` | `python -m examples.agent_template` |
 | [MCP 凭证与 Header](mcp_credentials.py) | `mcp,credentials` | `python -m examples.mcp_credentials` |
 | [Memory 写入与检索](memory.py) | 无 | `python -m examples.memory` |
 | [自定义资源](direct_resources.py) | `mcp` | `python -m examples.direct_resources` |
