@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -44,6 +45,68 @@ class FakeSession:
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         self.calls += 1
         return {"name": name, "arguments": arguments}
+
+
+@pytest.mark.asyncio
+async def test_managed_mcp_isolates_accessor_sessions_and_does_not_capture_tool_identity(
+    agent_config_path: Path,
+    mcp_descriptor: MCPDescriptor,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    opened: list[dict[str, str]] = []
+    closed: list[dict[str, str]] = []
+
+    @asynccontextmanager
+    async def factory(connection: MCPConnection) -> AsyncIterator[FakeSession]:
+        headers = await connection.resolve_headers()
+        opened.append(headers)
+        try:
+            yield FakeSession()
+        finally:
+            closed.append(headers)
+
+    monkeypatch.setattr(mcp_client_module, "_official_session", factory)
+    client = AsyncMCPClient.platform(load_agent_config(agent_config_path), mcp_descriptor)
+    with use_context(RequestContext({"X-AgentCore-Accessor-WAT": "user-a"})):
+        tools = await client.list_tools()
+        await client.call_tool("search", {"query": "second"})
+        assert len(opened) == 1, "The same inbound request must retain its MCP Session"
+    assert len(closed) == 0
+
+    async def call(wat: str) -> None:
+        with use_context(RequestContext({"X-AgentCore-Accessor-WAT": wat})):
+            await tools[0].ainvoke({"query": wat})
+
+    await asyncio.gather(call("user-b"), call("user-c"))
+    await client.call_tool("search", {})
+    await client.aclose()
+    assert [headers.get("x-agentcore-accessor-wat") for headers in opened] == [
+        "user-a",
+        "user-b",
+        "user-c",
+        None,
+    ]
+    assert len(closed) == 4
+    assert all(headers["Authorization"] == "Bearer gateway-secret" for headers in opened)
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "X-AgentCore-Accessor-WAT",
+        "x-agentcore-accessor-jwt",
+        "X-AgentCore-Accessor-MatrixID",
+    ],
+)
+def test_managed_mcp_rejects_static_accessor_headers(
+    agent_config_path: Path,
+    mcp_descriptor: MCPDescriptor,
+    header: str,
+) -> None:
+    with pytest.raises(ConfigError, match="protected"):
+        AsyncMCPClient.platform(
+            load_agent_config(agent_config_path), mcp_descriptor, headers={header: "forged"}
+        )
 
 
 @pytest.mark.asyncio
@@ -538,3 +601,54 @@ def test_direct_mcp_repr_redacts_url_credentials() -> None:
     assert "password" not in rendered
     assert "token" not in rendered
     assert "Bearer" not in rendered
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("finish", ["completed", "failed", "cancelled"])
+async def test_request_session_cleanup_on_completion_error_and_disconnect(
+    agent_config_path: Path,
+    mcp_descriptor: MCPDescriptor,
+    monkeypatch: pytest.MonkeyPatch,
+    finish: str,
+) -> None:
+    from agentcore.server import AgentRequest
+    from agentcore.server.invoker import AgentInvoker
+
+    closed = []
+
+    @asynccontextmanager
+    async def factory(connection: MCPConnection) -> AsyncIterator[FakeSession]:
+        try:
+            yield FakeSession()
+        finally:
+            closed.append(await connection.resolve_headers())
+
+    monkeypatch.setattr(mcp_client_module, "_official_session", factory)
+    client = AsyncMCPClient.platform(load_agent_config(agent_config_path), mcp_descriptor)
+
+    async def handler(_request, _context):  # type: ignore[no-untyped-def]
+        await client.call_tool("search", {})
+        yield "first"
+        if finish == "failed":
+            raise ValueError("handler failed")
+        if finish == "cancelled":
+            await anyio.sleep_forever()
+
+    invoker = AgentInvoker()
+    invoker.set_handler(handler)
+    request = AgentRequest(
+        protocol="openai", messages=[], stream=True, tools=None, raw_request=None, raw_payload={}
+    )
+    stream = invoker.invoke_stream(request, {"X-AgentCore-Accessor-WAT": "wat"})
+    await anext(stream)
+    assert not closed
+    if finish == "failed":
+        with pytest.raises(ValueError, match="handler failed"):
+            await anext(stream)
+    elif finish == "cancelled":
+        await stream.aclose()
+    else:
+        assert [event async for event in stream] == []
+    assert len(closed) == 1
+    assert not client._scoped_clients
+    await client.aclose()

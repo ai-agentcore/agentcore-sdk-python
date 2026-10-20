@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import logging
 import sys
+import weakref
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from urllib.parse import quote, urlsplit
 
 import anyio
@@ -24,12 +27,14 @@ from agentcore.errors import ConfigError
 from agentcore.integrations.common import Tool
 from agentcore.mcp._headers import merge_mcp_headers
 from agentcore.runtime.config import AgentConfig
+from agentcore.runtime.context import RequestContext, current_context
 
 HeadersProvider = Callable[[], Mapping[str, str] | Awaitable[Mapping[str, str]]]
 _MCP_SESSION_TIMEOUT_SECONDS = 30.0
 _MCP_METADATA_TIMEOUT_SECONDS = 60.0
 _MCP_TOOL_TIMEOUT_SECONDS = 600.0
 logger = logging.getLogger(__name__)
+_call_headers: ContextVar[Mapping[str, str] | None] = ContextVar("mcp_call_headers", default=None)
 
 
 @dataclass(frozen=True, repr=False)
@@ -84,6 +89,10 @@ class AsyncMCPClient:
         self._connection = connection
         self.descriptor = descriptor
         self._state: _SessionState | None = None
+        self._request_clients: weakref.WeakKeyDictionary[RequestContext, AsyncMCPClient] = (
+            weakref.WeakKeyDictionary()
+        )
+        self._scoped_clients: set[AsyncMCPClient] = set()
         self._lock = anyio.Lock()
         self._closed = False
         logger.info(
@@ -135,7 +144,29 @@ class AsyncMCPClient:
             MCPConnection(url=url, transport=transport, headers_provider=headers_provider),
         )
 
-    async def list_tools(self) -> list[Tool]:
+    async def list_tools(self, *, headers: Mapping[str, str] | None = None) -> list[Tool]:
+        if headers is not None:
+            token = _call_headers.set(merge_mcp_headers({}, headers))
+            try:
+                return await self.list_tools()
+            finally:
+                _call_headers.reset(token)
+        scoped = self._request_client()
+        if scoped is not None:
+
+            def bind(tool: Tool) -> Tool:
+                async def invoke(arguments: dict[str, Any]) -> Any:
+                    return await self.call_tool(tool.name, arguments)
+
+                return Tool(
+                    name=tool.name,
+                    description=tool.description,
+                    parameters=tool.parameters,
+                    _call=invoke,
+                )
+
+            return [bind(tool) for tool in await scoped.list_tools()]
+
         logger.info(
             "agentcore.mcp.tools.list.started name=%s url=%s timeout_seconds=%s",
             self._log_name,
@@ -171,10 +202,22 @@ class AsyncMCPClient:
         )
         return tools
 
-    async def tools(self) -> list[Tool]:
-        return await self.list_tools()
+    async def tools(self, *, headers: Mapping[str, str] | None = None) -> list[Tool]:
+        return await self.list_tools(headers=headers)
 
-    async def call_tool(self, name: str, arguments: Mapping[str, Any]) -> Any:
+    async def call_tool(
+        self, name: str, arguments: Mapping[str, Any], *, headers: Mapping[str, str] | None = None
+    ) -> Any:
+        if headers is not None:
+            token = _call_headers.set(merge_mcp_headers({}, headers))
+            try:
+                return await self.call_tool(name, arguments)
+            finally:
+                _call_headers.reset(token)
+        scoped = self._request_client()
+        if scoped is not None:
+            return await scoped.call_tool(name, arguments)
+
         logger.info(
             "agentcore.mcp.tool.call.started name=%s tool=%s url=%s timeout_seconds=%s",
             self._log_name,
@@ -212,6 +255,9 @@ class AsyncMCPClient:
         return result
 
     async def aclose(self) -> None:
+        self._closed = True
+        await asyncio.gather(*(client.aclose() for client in list(self._scoped_clients)))
+        self._scoped_clients.clear()
         while True:
             async with self._lock:
                 self._closed = True
@@ -220,11 +266,40 @@ class AsyncMCPClient:
                     logger.info("agentcore.mcp.client.closed name=%s", self._log_name)
                     return
                 await self._close_if_idle_unlocked(state)
-                if self._state is None:
+                state = self._state
+                if state is None:
                     return
                 assert state.idle is not None
                 waiter = state.idle
             await waiter.wait()
+
+    def _request_client(self) -> AsyncMCPClient | None:
+        if self._closed:
+            raise RuntimeError("MCP client is closed")
+        context = current_context(required=False)
+        wat = context.headers.get("x-agentcore-accessor-wat") if context else None
+        if self.descriptor is None or context is None or not wat:
+            return None
+        client = self._request_clients.get(context)
+        if client is None:
+
+            async def headers() -> Mapping[str, str]:
+                return {**await self._connection.resolve_headers(), "x-agentcore-accessor-wat": wat}
+
+            client = AsyncMCPClient(
+                MCPConnection(self._connection.url, self._connection.transport, headers)
+            )
+            self._request_clients[context] = client
+            self._scoped_clients.add(client)
+
+            async def close() -> None:
+                try:
+                    await client.aclose()
+                finally:
+                    self._scoped_clients.discard(client)
+
+            context.on_close(close)
+        return client
 
     async def _acquire_session_with_deadline(self) -> _SessionState:
         with anyio.fail_after(_MCP_SESSION_TIMEOUT_SECONDS):
@@ -328,6 +403,10 @@ def _platform_connection(
     if gateway.endswith("/mcp"):
         gateway = gateway[:-4]
     server_id = quote(descriptor.mcp_server_id, safe="")
+    if any(
+        name.lower().startswith("x-agentcore-accessor-") for name in config.spec.gateway_headers
+    ):
+        raise ConfigError("MCP accessor headers must come from the request context")
     captured_headers = merge_mcp_headers(config.spec.gateway_headers, headers)
     custom_headers = dict(headers or {})
 
@@ -441,24 +520,74 @@ async def _official_session(connection: MCPConnection) -> AsyncIterator[MCPSessi
         from mcp import ClientSession
     except ImportError as exc:
         raise ImportError(
-            "MCP support requires the 'mcp' extra: "
-            "pip install alibabacloud-agentcore-sdk[mcp]"
+            "MCP support requires the 'mcp' extra: pip install alibabacloud-agentcore-sdk[mcp]"
         ) from exc
 
-    headers = await connection.resolve_headers()
+    # The official HTTP writer runs in another task; carry call headers by RPC ID
+    # instead of reading its connection-creation ContextVar snapshot.
+    pending_headers: dict[object, Mapping[str, str]] = {}
+
+    class HeaderStream:
+        def __init__(self, stream: Any) -> None:
+            self.stream = stream
+
+        async def __aenter__(self) -> Any:
+            await self.stream.__aenter__()
+            return self
+
+        async def __aexit__(self, *args: Any) -> Any:
+            return await self.stream.__aexit__(*args)
+
+        async def aclose(self) -> None:
+            await self.stream.aclose()
+
+        async def send(self, message: Any) -> None:
+            request_id = getattr(message.message.root, "id", None)
+            if request_id is not None and hasattr(message.message.root, "method"):
+                pending_headers[request_id] = dict(_call_headers.get() or {})
+            try:
+                await self.stream.send(message)
+            except BaseException:
+                pending_headers.pop(request_id, None)
+                raise
+
+    async def inject_headers(request: httpx.Request) -> None:
+        extra: Mapping[str, str] = {}
+        if request.method == "POST":
+            body = json.loads(await request.aread())
+            if isinstance(body, dict) and "method" in body:
+                extra = pending_headers.pop(body.get("id"), {})
+        for name, value in merge_mcp_headers(await connection.resolve_headers(), extra).items():
+            request.headers[name] = value
+
+    def http_client_factory(
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+    ) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            headers=headers,
+            timeout=timeout,
+            auth=auth,
+            follow_redirects=False,
+            event_hooks={"request": [inject_headers]},
+        )
+
     if connection.transport == "streamable-http":
         from mcp.client.streamable_http import streamablehttp_client
 
-        async with streamablehttp_client(connection.url, headers=headers) as streams:
+        async with streamablehttp_client(
+            connection.url, httpx_client_factory=http_client_factory
+        ) as streams:
             read_stream, write_stream = streams[0], streams[1]
-            async with ClientSession(read_stream, write_stream) as session:
+            async with ClientSession(read_stream, cast(Any, HeaderStream(write_stream))) as session:
                 await session.initialize()
                 yield _OfficialMCPSession(session)
     else:
         from mcp.client.sse import sse_client
 
-        async with sse_client(connection.url, headers=headers) as streams:
+        async with sse_client(connection.url, httpx_client_factory=http_client_factory) as streams:
             read_stream, write_stream = streams[0], streams[1]
-            async with ClientSession(read_stream, write_stream) as session:
+            async with ClientSession(read_stream, cast(Any, HeaderStream(write_stream))) as session:
                 await session.initialize()
                 yield _OfficialMCPSession(session)

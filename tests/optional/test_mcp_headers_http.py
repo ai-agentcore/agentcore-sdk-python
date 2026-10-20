@@ -10,6 +10,7 @@ import pytest
 from agentcore.controlplane import MCPDescriptor
 from agentcore.mcp import AsyncMCPClient
 from agentcore.runtime.config import load_agent_config
+from agentcore.runtime.context import RequestContext, use_context
 
 
 @pytest.mark.asyncio
@@ -103,13 +104,76 @@ async def test_managed_mcp_headers_over_http(
             assert len(sessions) == 3
             assert all(len(values) == 1 for values in sessions.values())
             if use_credential:
-                assert fetches == {"a": 1, "b": 1}
+                assert fetches["a"] > 1 and fetches["b"] > 1
+                before = dict(fetches)
                 reject_sessions = True
                 with pytest.raises(McpError, match="Session terminated"):
                     await clients[0].call_tool("echo", {"value": "lost-session"})
                 reject_sessions = False
                 await clients[0].call_tool("echo", {"value": "reconnected"})
-                assert fetches == {"a": 2, "b": 1}
+                assert fetches["a"] > before["a"] and fetches["b"] == before["b"]
+            start = len(received)
+
+            async def call_as(wat: str) -> None:
+                context = RequestContext({"X-AgentCore-Accessor-WAT": wat})
+                try:
+                    with use_context(context):
+                        await clients[2].list_tools()
+                        results = await asyncio.gather(
+                            *(
+                                clients[2].call_tool(
+                                    "echo", {"value": value}, headers={"X-Call": value}
+                                )
+                                for value in ("first", "second")
+                            )
+                        )
+                        assert [result.content[0].text for result in results] == ["first", "second"]
+                        await clients[2].call_tool("echo", {"value": "no-header"})
+                        with pytest.raises(Exception, match="protected"):
+                            await clients[2].call_tool(
+                                "echo", {}, headers={"X-AgentCore-Accessor-WAT": "forged"}
+                            )
+                finally:
+                    await context.aclose()
+
+            await asyncio.gather(call_as("wat-a"), call_as("wat-b"))
+            scoped = received[start:]
+            assert {headers.get("x-agentcore-accessor-wat") for headers in scoped} == {
+                "wat-a",
+                "wat-b",
+            }
+            assert all(headers["authorization"] == "Bearer gateway-secret" for headers in scoped)
+            identity_by_session: dict[str, set[str]] = {}
+            for headers in scoped:
+                if session_id := headers.get("mcp-session-id"):
+                    identity_by_session.setdefault(session_id, set()).add(
+                        headers["x-agentcore-accessor-wat"]
+                    )
+            assert len(identity_by_session) == 2
+            assert all(len(values) == 1 for values in identity_by_session.values())
+            for wat in ("wat-a", "wat-b"):
+                wire = [
+                    headers for headers in scoped if headers.get("x-agentcore-accessor-wat") == wat
+                ]
+                assert (
+                    len(
+                        {
+                            headers["mcp-session-id"]
+                            for headers in wire
+                            if "mcp-session-id" in headers
+                        }
+                    )
+                    == 1
+                )
+                assert sorted(headers["x-call"] for headers in wire if "x-call" in headers) == [
+                    "first",
+                    "second",
+                ]
+                assert "x-call" not in wire[-1], (
+                    "Per-call headers must not leak into later calls or DELETE"
+                )
+            await clients[2].call_tool("echo", {"value": "no-user"})
+            assert "x-agentcore-accessor-wat" not in received[-1]
         finally:
             await asyncio.gather(*(client.aclose() for client in clients))
             server.should_exit = True
