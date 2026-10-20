@@ -90,6 +90,33 @@ async def stream_agent(headers, messages):
 
 协作工具调用时重新读取运行时 env 文件（默认 `/var/run/agentcore/agent/env`）。任务服务地址和具名 Matrix Token 优先使用文件中的值，缺少的字段从进程环境变量补充。文件不存在时允许仅使用环境变量；必需字段仍缺失、文件无法读取或格式错误时，调用报错，不静默回退。文件中的凭证更新会在后续调用中生效，不会被旧的进程环境变量覆盖。
 
+## Matrix 房间附件
+
+注册上述工具和 Skills 后，会包含 `room-files` Skill 以及两个工具，无需修改 AG-UI / OpenAI 消息格式，也不需要增加附件 Header：
+
+| 工具 | 参数 | 成功结果 `data` |
+|---|---|---|
+| `agentteams_download_room_file` | `event_id` | `event_id`、`local_path`、`filename`、`content_type`、`size` |
+| `agentteams_send_room_file` | `local_path`、可选 `caption` | `event_id`、`filename`、`status: "sent"` |
+
+支持未加密的普通文件、PNG/JPEG/GIF/WebP 图片收发；其他图片类型按普通文件发送。群聊可先上传文件，再回复该文件并 @Agent。转发输入只包含附件摘要及事件 ID；工具按当前请求的房间取得附件，Token 和媒体 URL 不会交给模型。房间文件不要求属于某个 Team，但需要有效 Matrix 身份、当前请求 Context 及房间访问权限。
+
+下载保存在协作工作目录的独立 `attachments/` 子目录中，失败或取消时清理半文件。上传只允许该工作目录中的普通文件，不接受越界路径或符号链接。文件大小受 Matrix 媒体上限约束。成功下载文件由应用管理保留周期，SDK 不在会话结束时删除。
+
+下载只完成文件传输，不代表模型已读懂文件。应用需要注册自己的文本、文档或图片读取工具；图片还需要支持视觉的模型。参见 [AgentScope 原生 Read/Write 接入示例](../../examples/collaboration_room_files.py)，SDK 不另包通用读取工具。
+
+安装 `agentscope,collaboration,server` extras，配置运行时后可执行：
+
+```bash
+uvicorn examples.collaboration_room_files:server --host 0.0.0.0 --port 8080
+```
+
+示例使用 `test-mc` 模型连接，可通过 `EXAMPLE_MODEL_NAME` 指定该连接下的视觉模型。工作目录使用 `AGENT_WORKSPACE`（默认当前目录），必须与读取工具共享同一文件系统。
+
+发送成功后，Matrix 房间会出现回复当前消息的原生附件；这不会提交 Task Result，也不会结束 Agent Run。只有返回 `status: "sent"` 才可确认送达。`COLLABORATION_ROOM_FILE_SEND_UNKNOWN` 表示结果无法确认，不要盲目再次调用发送工具。
+
+自建 Server 沿用上文的 `worker.request_context(headers)`，无需预下载附件。先升级协作包和 Agent，再部署支持附件摘要的转发组件。
+
 ## 升级
 
 ```bash
