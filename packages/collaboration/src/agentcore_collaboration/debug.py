@@ -96,6 +96,9 @@ class DebugCollaborationRuntime:
             self._next_refresh = now + self._refresh_interval
             return self._snapshot
 
+    def matrix_endpoint(self) -> str:
+        return _http_url(self._source.matrix_url)
+
     def endpoint(self) -> str:
         override = os.getenv("AGENTCORE_TASK_SERVICE_ENDPOINT", "").strip()
         if override:

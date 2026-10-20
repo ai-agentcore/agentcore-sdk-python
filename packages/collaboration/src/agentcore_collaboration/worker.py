@@ -8,6 +8,8 @@ import inspect
 import mimetypes
 import os
 import tempfile
+import time
+import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractContextManager
 from pathlib import Path, PurePosixPath
@@ -34,9 +36,12 @@ from agentcore.collaboration.errors import (
     CollaborationToolArgumentError,
 )
 from agentcore.integrations.common import Tool
+from agentcore.runtime.context import current_context
 from agentcore.runtime.environment import DEFAULT_ENV_PATH, RuntimeEnvironmentProvider
 from agentcore.skill import Skill
 from agentcore_collaboration.debug import DebugCollaborationRuntime
+from agentcore_collaboration.matrix_files import MatrixFileClient
+from agentcore_collaboration.matrix_files import logger as room_logger
 from agentcore_collaboration.skills import worker_skills
 from agentcore_collaboration.teams import DEFAULT_TEAMS_PATH, TeamsProvider, TeamsSnapshot
 
@@ -61,6 +66,9 @@ At the start of every newly assigned Subtask or revision turn, you MUST load and
 `task-execution`, including its Task/Subtask file workflow. Before synchronizing non-Task Team
 files, load and follow `file-sharing`. If a required Skill is unavailable, do not perform
 collaboration writes.
+
+When handling chat attachments or delivering local files to the current room, load and follow
+`room-files`. After downloading, use the application's existing file or image reading tools.
 
 For assigned Subtask work, produce only the requested deliverables and perform only explicitly
 required checks or checks necessary to establish usability. Once they pass, submit a short Result.
@@ -98,10 +106,12 @@ class WorkerCollaboration:
         teams: TeamsProvider | TeamsSnapshotProvider,
         task_client: Any,
         workspace: Path,
+        matrix_client: MatrixFileClient | None = None,
     ) -> None:
         self._teams = teams
         self._task_client = task_client
         self._workspace = workspace
+        self._matrix_client = matrix_client
         self._skills = worker_skills()
         self._tools = self._create_tools()
 
@@ -329,6 +339,15 @@ class WorkerCollaboration:
                 self._filesync_stat,
                 required=("path",),
             ),
+            _tool("agentteams_download_room_file",
+                  "Download an attachment by its exact event_id into the local workspace. "
+                  "Use your existing reading tools to inspect the downloaded file.",
+                  {"event_id": _STRING}, self._download_room_file, required=("event_id",)),
+            _tool("agentteams_send_room_file",
+                  "Send a workspace file or image to the current chat. "
+                  "Report delivery only after this tool succeeds.",
+                  {"local_path": _WORKSPACE_PATH, "caption": _STRING}, self._send_room_file,
+                  required=("local_path",)),
         ]
 
     async def _get_team_context(self, _arguments: dict[str, Any]) -> dict[str, Any]:
@@ -754,6 +773,64 @@ class WorkerCollaboration:
             cursor = next_cursor
         return sorted(entries, key=lambda item: item["path"])
 
+    async def _download_room_file(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        async def operation(snapshot: TeamsSnapshot, context: CollaborationTurnContext) -> Any:
+            assert self._matrix_client is not None
+            matrix = self._matrix_client
+            event_id = _required_string(arguments, "event_id")
+            attachment = await matrix.attachment(snapshot, context.room_id, event_id)
+            output = self._workspace / "attachments" / uuid.uuid4().hex / attachment.filename
+            result = await _download_local_file(
+                output, self._workspace, overwrite=False,
+                download=lambda path: matrix.download_to(snapshot, attachment, path),
+            )
+            return {"event_id": event_id, "local_path": result["path"],
+                    "filename": attachment.filename, "content_type": attachment.content_type,
+                    "size": result["size"]}
+        return await self._execute_room_file("download", arguments, operation)
+
+    async def _send_room_file(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        async def operation(snapshot: TeamsSnapshot, context: CollaborationTurnContext) -> Any:
+            assert self._matrix_client is not None
+            source = _source_path(arguments, self._workspace, allow_directory=False)
+            return await self._matrix_client.send(
+                snapshot, context, source, _optional_string(arguments, "caption"),
+            )
+        return await self._execute_room_file("send", arguments, operation)
+
+    async def _execute_room_file(
+        self, action: str, arguments: dict[str, Any],
+        operation: Callable[[TeamsSnapshot, CollaborationTurnContext], Awaitable[Any]],
+    ) -> dict[str, Any]:
+        context = current_collaboration_context(required=False)
+        request = current_context(required=False)
+        started = time.monotonic()
+        fields = (action, context.room_id if context else None,
+                  context.event_id if context else None, arguments.get("event_id"),
+                  request.headers.get("x-agentcore-invocation-id") if request else None)
+        room_logger.info("agentcore.room_file.started operation=%s room_id=%s "
+                         "request_event_id=%s attachment_event_id=%s invocation_id=%s", *fields)
+        try:
+            if context is None:
+                raise CollaborationContextRequiredError(
+                    "A current Matrix room context is required."
+                )
+            snapshot = await self._require_enabled()
+            if self._matrix_client is None:
+                raise CollaborationConfigError("Matrix file client is not configured.")
+            data = await operation(snapshot, context)
+            room_logger.info("agentcore.room_file.completed operation=%s room_id=%s "
+                             "request_event_id=%s attachment_event_id=%s invocation_id=%s "
+                             "event_id=%s bytes=%s duration_ms=%s", *fields, data.get("event_id"),
+                             data.get("size"), int((time.monotonic() - started) * 1000))
+            return {"ok": True, "data": data}
+        except CollaborationError as exc:
+            room_logger.warning("agentcore.room_file.failed operation=%s room_id=%s "
+                                "request_event_id=%s attachment_event_id=%s invocation_id=%s "
+                                "code=%s duration_ms=%s",
+                                *fields, exc.code, int((time.monotonic() - started) * 1000))
+            return _error_result(exc)
+
     async def _execute_read(
         self,
         operation: Callable[[TeamsSnapshot, CollaborationTurnContext | None], Awaitable[Any]],
@@ -888,6 +965,7 @@ class Collaboration:
         env_path: str | Path | None = None,
         workspace_dir: str | Path | None = None,
         task_client: Any = None,
+        matrix_client: MatrixFileClient | None = None,
         _debug_runtime: DebugCollaborationRuntime | None = None,
         _use_debug_teams: bool = True,
     ) -> None:
@@ -895,6 +973,7 @@ class Collaboration:
         self._env_path = env_path or os.getenv("AGENTCORE_ENV_PATH") or DEFAULT_ENV_PATH
         self._workspace_dir = workspace_dir
         self._task_client = task_client
+        self._matrix_client = matrix_client
         self._debug_runtime = _debug_runtime
         self._use_debug_teams = _use_debug_teams
         self._worker: WorkerCollaboration | None = None
@@ -924,13 +1003,30 @@ class Collaboration:
                         runtime_environment.value,
                         endpoint_provider=runtime_environment.task_service_endpoint,
                     )
-            self._worker = WorkerCollaboration(teams, self._task_client, workspace)
+            if self._matrix_client is None:
+                if self._debug_runtime is not None:
+                    self._matrix_client = MatrixFileClient(
+                        self._debug_runtime.token,
+                        endpoint_provider=self._debug_runtime.matrix_endpoint,
+                        token_refresher=self._debug_runtime.refresh_token,
+                    )
+                else:
+                    environment = RuntimeEnvironmentProvider(self._env_path)
+                    self._matrix_client = MatrixFileClient(
+                        environment.value,
+                        endpoint_provider=lambda: environment.value("AGENTTEAMS_MATRIX_URL"),
+                    )
+            self._worker = WorkerCollaboration(
+                teams, self._task_client, workspace, self._matrix_client,
+            )
         return self._worker
 
     async def aclose(self) -> None:
         close = getattr(self._task_client, "aclose", None)
         if close is not None:
             await close()
+        if self._matrix_client is not None:
+            await self._matrix_client.aclose()
 
 
 def _tool(
@@ -1256,7 +1352,8 @@ async def _download_local_file(
         )
         return {"path": str(output), "size": size}
     finally:
-        await anyio.to_thread.run_sync(lambda: temporary.unlink(missing_ok=True))
+        with anyio.CancelScope(shield=True):
+            await anyio.to_thread.run_sync(lambda: temporary.unlink(missing_ok=True))
 
 
 def _prepare_download(output: Path, workspace: Path, *, overwrite: bool) -> tuple[Path, Path]:

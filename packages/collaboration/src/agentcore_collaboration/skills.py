@@ -14,6 +14,10 @@ _SKILLS = (
         "file-sharing",
         "Synchronize non-Task Team files; Task and Subtask files belong to task-execution.",
     ),
+    (
+        "room-files",
+        "Download chat attachments and deliver workspace files to the current Matrix room.",
+    ),
 )
 
 

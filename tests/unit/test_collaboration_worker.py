@@ -174,6 +174,8 @@ async def test_worker_exposes_supported_tools_and_writes_explicit_subtask_in_tas
     tools = {tool.name: tool for tool in worker.tools()}
 
     assert set(tools) == {
+        "agentteams_download_room_file",
+        "agentteams_send_room_file",
         "agentteams_get_team_context",
         "agentteams_list_tasks",
         "agentteams_get_task",
@@ -530,7 +532,7 @@ def test_worker_prompt_preserves_application_identity_and_subtask_workflow(
     assert "not live Matrix room membership" in normalized_prompt
     assert str(workspace) in prompt
     assert "relative to this directory" in normalized_prompt
-    assert [skill.name for skill in skills] == ["task-execution", "file-sharing"]
+    assert [skill.name for skill in skills] == ["task-execution", "file-sharing", "room-files"]
     assert all(skill.source == "agentcore-collaboration" for skill in skills)
     assert "agentteams_ack_subtask" in normalized_task_skill
     assert "a heartbeat is not progress evidence" in normalized_task_skill
@@ -699,6 +701,7 @@ def test_sync_runtime_exposes_sync_worker_tools(
         assert [skill.name for skill in worker.skills()] == [
             "task-execution",
             "file-sharing",
+            "room-files",
         ]
         get_task = next(tool for tool in worker.tools() if tool.name == "agentteams_get_task")
 
@@ -760,7 +763,7 @@ def test_worker_framework_adapters_expose_the_same_static_toolset(
 
     adapted = getattr(worker, method)()
 
-    assert len(adapted) == 24
+    assert len(adapted) == 26
     assert {tool.name for tool in adapted} == {tool.name for tool in worker.tools()}
 
 
