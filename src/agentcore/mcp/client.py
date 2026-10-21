@@ -291,8 +291,14 @@ class AsyncMCPClient:
             )
             self._request_clients[context] = client
             self._scoped_clients.add(client)
+            owner_loop = asyncio.get_running_loop()
 
             async def close() -> None:
+                if owner_loop.is_closed():
+                    return  # A synchronous Core may have already closed its portal and sessions.
+                if asyncio.get_running_loop() is not owner_loop:
+                    await asyncio.wrap_future(asyncio.run_coroutine_threadsafe(close(), owner_loop))
+                    return
                 try:
                     await client.aclose()
                 finally:

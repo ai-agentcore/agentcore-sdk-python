@@ -237,6 +237,7 @@ MCP HTTP 请求保留自动跳转；同源跳转继续携带认证，跨源跳�
 MCP 依赖从 1.30.0 起拒绝跨源跳转；此时应直接配置最终 MCP 地址。
 `list_tools(headers={"X-Trace-ID": "..."})`、`call_tool(name, args, headers={...})`
 支持逐次传入业务 Header，不改变 MCP Session；身份、Authorization 和协议 Header 不可覆盖。
+同步 MCP 的 `tools()`、`list_tools()`、`call_tool()` 同样支持逐次传入 `headers`。
 手动管理 `RequestContext` 时，在请求结束后调用 `await context.aclose()` 释放 Session。
 WAT 兑换、到期恢复和工具权限校验由网关负责，SDK 不会自动重试工具调用。
 
