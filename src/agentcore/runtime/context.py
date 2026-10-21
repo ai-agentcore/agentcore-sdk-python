@@ -23,7 +23,16 @@ class RequestContext:
     async def aclose(self) -> None:
         cleanups = list(self._cleanups)
         self._cleanups.clear()
-        await asyncio.gather(*(cleanup() for cleanup in cleanups))
+
+        async def run(cleanup: Callable[[], Awaitable[None]]) -> None:
+            await cleanup()
+
+        results = await asyncio.gather(
+            *(run(cleanup) for cleanup in cleanups), return_exceptions=True
+        )
+        for result in results:
+            if isinstance(result, BaseException):
+                raise result
 
     def __post_init__(self) -> None:
         normalized = {key.lower(): value for key, value in self.headers.items()}

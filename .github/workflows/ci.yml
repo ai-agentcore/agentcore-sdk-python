@@ -61,6 +61,11 @@ jobs:
           python -m pip check
       - name: Unit, local protocol and framework tests
         run: python -m pytest tests/unit tests/integration tests/optional -q --tb=short
+      - name: MCP 1.28.1 HTTP compatibility
+        if: matrix.python == '3.11' && matrix.framework == 'langchain-langgraph'
+        run: |
+          python -m pip install "mcp==1.28.1"
+          python -m pytest tests/optional/test_mcp_headers_http.py -q --tb=short
 
   packages:
     name: Build distributions

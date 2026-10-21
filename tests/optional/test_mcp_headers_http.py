@@ -3,9 +3,12 @@
 import asyncio
 import socket
 from dataclasses import replace
+from importlib.metadata import version
 from pathlib import Path
 
+import httpx
 import pytest
+from packaging.version import Version
 
 from agentcore.controlplane import MCPDescriptor
 from agentcore.mcp import AsyncMCPClient
@@ -26,6 +29,7 @@ async def test_mcp_redirects_preserve_compatibility_and_accessor_boundary(
     uvicorn = pytest.importorskip("uvicorn")
     from mcp.server.fastmcp import FastMCP
 
+    rejects_cross_origin = cross_origin and Version(version("mcp")) >= Version("1.30.0")
     server_mcp = FastMCP(
         "redirect-test", streamable_http_path="/canonical/mcp", json_response=True
     )
@@ -88,13 +92,20 @@ async def test_mcp_redirects_preserve_compatibility_and_accessor_boundary(
 
             await asyncio.wait_for(wait_for_start(), 5)
             with use_context(context):
-                tools = await asyncio.wait_for(client.list_tools(), 5)
-                assert [tool.name for tool in tools] == ["echo"]
-                for value in ("first", "second"):
-                    result = await asyncio.wait_for(
-                        client.call_tool("echo", {"value": value}, headers={"X-Call": value}), 5
-                    )
-                    assert result.content[0].text == value
+                if rejects_cross_origin:
+                    with pytest.raises(
+                        httpx.HTTPStatusError, match="Redirect.*not followed"
+                    ) as error:
+                        await asyncio.wait_for(client.list_tools(), 5)
+                    assert error.value.response.status_code == 307
+                else:
+                    tools = await asyncio.wait_for(client.list_tools(), 5)
+                    assert [tool.name for tool in tools] == ["echo"]
+                    for value in ("first", "second"):
+                        result = await asyncio.wait_for(
+                            client.call_tool("echo", {"value": value}, headers={"X-Call": value}), 5
+                        )
+                        assert result.content[0].text == value
         finally:
             try:
                 await context.aclose()
@@ -107,9 +118,13 @@ async def test_mcp_redirects_preserve_compatibility_and_accessor_boundary(
     redirected = [headers for path, headers in received if path == "/canonical/mcp"]
     authorization = "Bearer direct-secret" if mode == "direct" else "Bearer gateway-secret"
     wat = "user-wat" if mode == "managed" else None
-    assert original and redirected
+    assert original
     assert all(headers.get("authorization") == authorization for headers in original)
     assert all(headers.get("x-agentcore-accessor-wat") == wat for headers in original)
+    if rejects_cross_origin:
+        assert not redirected, "The transport must not contact the cross-origin destination"
+        return
+    assert redirected
     assert all(
         headers.get("authorization") == (None if cross_origin else authorization)
         for headers in redirected

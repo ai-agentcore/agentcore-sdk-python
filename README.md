@@ -234,6 +234,7 @@ uvicorn examples.langchain_server:server --host 0.0.0.0 --port 8080 --log-level 
 直连 MCP 不会自动收到平台 WAT。不要把 Accessor JWT、WAT 或 Matrix ID 配成固定 MCP
 Header。自行启动的后台任务或跨进程执行需要显式传播可信请求上下文。
 MCP HTTP 请求保留自动跳转；同源跳转继续携带认证，跨源跳转不会重新注入平台凭据或携带 WAT。
+MCP 依赖从 1.30.0 起拒绝跨源跳转；此时应直接配置最终 MCP 地址。
 `list_tools(headers={"X-Trace-ID": "..."})`、`call_tool(name, args, headers={...})`
 支持逐次传入业务 Header，不改变 MCP Session；身份、Authorization 和协议 Header 不可覆盖。
 手动管理 `RequestContext` 时，在请求结束后调用 `await context.aclose()` 释放 Session。
