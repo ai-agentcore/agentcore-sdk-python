@@ -551,7 +551,15 @@ async def _official_session(connection: MCPConnection) -> AsyncIterator[MCPSessi
                 pending_headers.pop(request_id, None)
                 raise
 
+    endpoint = httpx.URL(connection.url)
+
     async def inject_headers(request: httpx.Request) -> None:
+        if (request.url.scheme, request.url.host, request.url.port) != (
+            endpoint.scheme, endpoint.host, endpoint.port
+        ):
+            # HTTPX strips cross-origin Authorization; WAT needs the same boundary.
+            request.headers.pop("x-agentcore-accessor-wat", None)
+            return
         extra: Mapping[str, str] = {}
         if request.method == "POST":
             body = json.loads(await request.aread())
@@ -569,7 +577,7 @@ async def _official_session(connection: MCPConnection) -> AsyncIterator[MCPSessi
             headers=headers,
             timeout=timeout,
             auth=auth,
-            follow_redirects=False,
+            follow_redirects=True,
             event_hooks={"request": [inject_headers]},
         )
 

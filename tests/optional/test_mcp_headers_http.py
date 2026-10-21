@@ -14,6 +14,119 @@ from agentcore.runtime.context import RequestContext, use_context
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["direct", "managed", "managed-without-wat"])
+@pytest.mark.parametrize("cross_origin", [False, True])
+async def test_mcp_redirects_preserve_compatibility_and_accessor_boundary(
+    agent_config_path: Path,
+    mcp_descriptor: MCPDescriptor,
+    mode: str,
+    cross_origin: bool,
+) -> None:
+    pytest.importorskip("mcp")
+    uvicorn = pytest.importorskip("uvicorn")
+    from mcp.server.fastmcp import FastMCP
+
+    server_mcp = FastMCP(
+        "redirect-test", streamable_http_path="/canonical/mcp", json_response=True
+    )
+
+    @server_mcp.tool()
+    async def echo(value: str) -> str:
+        return value
+
+    app = server_mcp.streamable_http_app()
+    received: list[tuple[str, dict[str, str]]] = []
+
+    async def redirect(scope, receive, send):  # type: ignore[no-untyped-def]
+        if scope["type"] == "http":
+            received.append(
+                (scope["path"], {key.decode(): value.decode() for key, value in scope["headers"]})
+            )
+            if scope["path"] == "/mcp-servers/search-id":
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 307,
+                        "headers": [(b"location", target.encode())],
+                    }
+                )
+                await send({"type": "http.response.body", "body": b""})
+                return
+        await app(scope, receive, send)
+
+    with socket.socket() as listener, socket.socket() as other_listener:
+        listener.bind(("127.0.0.1", 0))
+        other_listener.bind(("127.0.0.1", 0))
+        url = f"http://127.0.0.1:{listener.getsockname()[1]}"
+        target_port = (other_listener if cross_origin else listener).getsockname()[1]
+        target = f"http://127.0.0.1:{target_port}/canonical/mcp"
+        server = uvicorn.Server(uvicorn.Config(redirect, log_config=None))
+        serving = asyncio.create_task(server.serve(sockets=[listener, other_listener]))
+        config = load_agent_config(agent_config_path)
+        config = replace(
+            config, spec=replace(config.spec, mcp=replace(config.spec.mcp, gateway_url=url))
+        )
+        client = (
+            AsyncMCPClient.direct(
+                url=f"{url}/mcp-servers/search-id",
+                headers_provider=lambda: {"Authorization": "Bearer direct-secret"},
+            )
+            if mode == "direct"
+            else AsyncMCPClient.platform(config, mcp_descriptor)
+        )
+        context = RequestContext(
+            {} if mode == "managed-without-wat" else {"X-AgentCore-Accessor-WAT": "user-wat"}
+        )
+        try:
+
+            async def wait_for_start() -> None:
+                while not server.started:
+                    if serving.done():
+                        await serving
+                        raise AssertionError("MCP server exited before startup")
+                    await asyncio.sleep(0.01)
+
+            await asyncio.wait_for(wait_for_start(), 5)
+            with use_context(context):
+                tools = await asyncio.wait_for(client.list_tools(), 5)
+                assert [tool.name for tool in tools] == ["echo"]
+                for value in ("first", "second"):
+                    result = await asyncio.wait_for(
+                        client.call_tool("echo", {"value": value}, headers={"X-Call": value}), 5
+                    )
+                    assert result.content[0].text == value
+        finally:
+            try:
+                await context.aclose()
+                await client.aclose()
+            finally:
+                server.should_exit = True
+                await asyncio.wait_for(serving, 5)
+
+    original = [headers for path, headers in received if path == "/mcp-servers/search-id"]
+    redirected = [headers for path, headers in received if path == "/canonical/mcp"]
+    authorization = "Bearer direct-secret" if mode == "direct" else "Bearer gateway-secret"
+    wat = "user-wat" if mode == "managed" else None
+    assert original and redirected
+    assert all(headers.get("authorization") == authorization for headers in original)
+    assert all(headers.get("x-agentcore-accessor-wat") == wat for headers in original)
+    assert all(
+        headers.get("authorization") == (None if cross_origin else authorization)
+        for headers in redirected
+    )
+    assert all(
+        headers.get("x-agentcore-accessor-wat") == (None if cross_origin else wat)
+        for headers in redirected
+    )
+    sessions = {headers["mcp-session-id"] for headers in redirected if "mcp-session-id" in headers}
+    assert len(sessions) == 1
+    assert sorted(headers["x-call"] for headers in redirected if "x-call" in headers) == [
+        "first",
+        "second",
+    ]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("use_credential", [False, True])
 async def test_managed_mcp_headers_over_http(
     agent_config_path: Path,
