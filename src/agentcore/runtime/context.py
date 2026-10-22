@@ -2,18 +2,37 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+import asyncio
+from collections.abc import Awaitable, Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 
 from agentcore.errors import ContextError
 
 
-@dataclass(frozen=True, repr=False)
+@dataclass(frozen=True, repr=False, eq=False)
 class RequestContext:
     headers: Mapping[str, str]
+    _cleanups: list[Callable[[], Awaitable[None]]] = field(default_factory=list, init=False)
+
+    def on_close(self, cleanup: Callable[[], Awaitable[None]]) -> None:
+        self._cleanups.append(cleanup)
+
+    async def aclose(self) -> None:
+        cleanups = list(self._cleanups)
+        self._cleanups.clear()
+
+        async def run(cleanup: Callable[[], Awaitable[None]]) -> None:
+            await cleanup()
+
+        results = await asyncio.gather(
+            *(run(cleanup) for cleanup in cleanups), return_exceptions=True
+        )
+        for result in results:
+            if isinstance(result, BaseException):
+                raise result
 
     def __post_init__(self) -> None:
         normalized = {key.lower(): value for key, value in self.headers.items()}

@@ -86,7 +86,7 @@ Header 作用于该客户端的握手、工具发现和工具调用，不是请�
 SDK 会复制配置，不同 Header 配置使用不同客户端和 Session；不传时保持原有行为。
 合并顺序为平台 Header → 凭证 Header → 自定义 Header；名称大小写不敏感，冲突直接报错，不做覆盖。
 `Authorization`、平台已配置的 Header，以及 `Host`、`Mcp-Session-Id`、`Mcp-Protocol-Version` 等协议维护字段不可覆盖。
-凭证在首次建连和重连时查询与获取，复用 Session 期间不重复获取，也不后台刷新。
+HTTP Header provider 在每次发送请求时求值，Session 复用不影响 Header 更新。
 托管 MCP 使用 Streamable HTTP；直连 MCP 保留 `headers_provider`，stdio 不承载 HTTP Header。
 不要修改共享客户端来切换用户身份。Header 的内容由业务明确选择，不自动透传入站请求头。
 固定 Header 不等于可信身份。完整示例见 [MCP 凭证与 Header](examples/mcp_credentials.py)。
@@ -227,6 +227,19 @@ uvicorn examples.langchain_server:server --host 0.0.0.0 --port 8080 --log-level 
 框架执行流应使用对应的[事件转换器](examples/frameworks/execution-events.md)，不要只提取文本。AG-UI 可表达消息边界、工具调用和工具结果；OpenAI Chat Completions 按其标准表达文本和工具调用，不提供独立的工具结果流式事件。会话历史的保存与恢复仍由应用或所用框架负责。
 
 ## 使用提示
+
+`AgentCoreServer` 在当前执行上下文中保留入站网关设置的 `X-AgentCore-Accessor-WAT`。
+`core.mcp()` 调用平台 MCP 时自动携带该原始值，同一次入站请求内复用 MCP Session，
+不同入站请求隔离，请求结束（包括失败或取消）后关闭 Session。已有网关 `Authorization` 继续保留；
+直连 MCP 不会自动收到平台 WAT。不要把 Accessor JWT、WAT 或 Matrix ID 配成固定 MCP
+Header。自行启动的后台任务或跨进程执行需要显式传播可信请求上下文。
+MCP HTTP 请求保留自动跳转；同源跳转继续携带认证，跨源跳转不会重新注入平台凭据或携带 WAT。
+MCP 依赖从 1.30.0 起拒绝跨源跳转；此时应直接配置最终 MCP 地址。
+`list_tools(headers={"X-Trace-ID": "..."})`、`call_tool(name, args, headers={...})`
+支持逐次传入业务 Header，不改变 MCP Session；身份、Authorization 和协议 Header 不可覆盖。
+同步 MCP 的 `tools()`、`list_tools()`、`call_tool()` 同样支持逐次传入 `headers`。
+手动管理 `RequestContext` 时，在请求结束后调用 `await context.aclose()` 释放 Session。
+WAT 兑换、到期恢复和工具权限校验由网关负责，SDK 不会自动重试工具调用。
 
 - 在应用生命周期内复用 Core；异步应用使用 `async with`，同步应用可使用 `with AgentCore.auto()`。
 - 普通同步调用和异步文本流见 [模型调用示例](examples/model_calls.py)；Responses 用法见 [示例指南](examples/README.md#模型调用方式)。
