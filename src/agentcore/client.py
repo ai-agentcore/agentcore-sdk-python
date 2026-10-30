@@ -1092,9 +1092,11 @@ class _SyncMCP:
     def descriptor(self) -> Any:
         return getattr(self._client, "descriptor", None)
 
-    def tools(self) -> list[Any]:
+    def tools(self, *, headers: Mapping[str, str] | None = None) -> list[Any]:
         with self._operation():
-            values = cast(list[Any], self._portal.call(self._client.tools))
+            values = cast(
+                list[Any], self._portal.call(partial(self._client.tools, headers=headers))
+            )
         return [
             value.with_sync_call(partial(self.call_tool, value.name))
             if isinstance(value, Tool)
@@ -1102,12 +1104,16 @@ class _SyncMCP:
             for value in values
         ]
 
-    def list_tools(self) -> list[Any]:
-        return self.tools()
+    def list_tools(self, *, headers: Mapping[str, str] | None = None) -> list[Any]:
+        return self.tools(headers=headers)
 
-    def call_tool(self, name: str, arguments: Mapping[str, Any]) -> Any:
+    def call_tool(
+        self, name: str, arguments: Mapping[str, Any], *, headers: Mapping[str, str] | None = None
+    ) -> Any:
         with self._operation():
-            return self._portal.call(partial(self._client.call_tool, name, arguments))
+            return self._portal.call(
+                partial(self._client.call_tool, name, arguments, headers=headers)
+            )
 
 
 class _SyncSkills:

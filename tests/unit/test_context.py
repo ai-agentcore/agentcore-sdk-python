@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Awaitable
+
 import pytest
 
 from agentcore.runtime.context import (
@@ -69,3 +72,58 @@ def test_context_is_request_scoped() -> None:
         assert current_context() is context
 
     assert current_context(required=False) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["sync", "async", "cancelled"])
+async def test_cleanup_failure_still_waits_for_other_resources(failure: str) -> None:
+    context = request_context_from_headers({})
+    release = asyncio.Event()
+    cleaned: list[str] = []
+
+    async def fail_async() -> None:
+        if failure == "cancelled":
+            raise asyncio.CancelledError()
+        raise RuntimeError("cleanup failed")
+
+    def fail() -> Awaitable[None]:
+        if failure == "sync":
+            raise RuntimeError("cleanup failed")
+        return fail_async()
+
+    async def close_resource() -> None:
+        await release.wait()
+        cleaned.append("closed")
+
+    context.on_close(fail)
+    context.on_close(close_resource)
+    closing = asyncio.create_task(context.aclose())
+    try:
+        done, _ = await asyncio.wait({closing}, timeout=0.01)
+        assert not done, "Cleanup must wait for the remaining resource even after a failure"
+    finally:
+        release.set()
+        error = asyncio.CancelledError if failure == "cancelled" else RuntimeError
+        with pytest.raises(error):
+            await closing
+    assert cleaned == ["closed"]
+    await context.aclose()
+    assert cleaned == ["closed"], "A second close must not run cleanups again"
+
+
+@pytest.mark.asyncio
+async def test_cleanup_waits_for_all_failures_and_preserves_first_error() -> None:
+    context = request_context_from_headers({})
+    failures = [RuntimeError("first"), ValueError("second")]
+    cleaned: list[int] = []
+
+    async def fail(index: int) -> None:
+        cleaned.append(index)
+        raise failures[index]
+
+    context.on_close(lambda: fail(0))
+    context.on_close(lambda: fail(1))
+    with pytest.raises(RuntimeError) as raised:
+        await context.aclose()
+    assert raised.value is failures[0]
+    assert cleaned == [0, 1]

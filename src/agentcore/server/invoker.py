@@ -99,6 +99,9 @@ class AgentInvoker:
                 type(exc).__name__,
             )
             raise
+        finally:
+            with anyio.CancelScope(shield=True):
+                await context.aclose()
         logger.info(
             "agentcore.server.invoke.succeeded protocol=%s request_id=%s session_id=%s run_id=%s",
             request.protocol,

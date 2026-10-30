@@ -46,7 +46,7 @@ class FakeModel:
 
 
 class FakeMCP:
-    async def tools(self) -> list[Tool]:
+    async def tools(self, *, headers: Any = None) -> list[Tool]:
         return [
             Tool(
                 name="echo",
@@ -56,7 +56,9 @@ class FakeMCP:
             )
         ]
 
-    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+    async def call_tool(
+        self, name: str, arguments: dict[str, Any], *, headers: Any = None
+    ) -> Any:
         return {"name": name, "arguments": arguments}
 
 

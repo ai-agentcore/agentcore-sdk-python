@@ -16,6 +16,9 @@ _TRANSPORT_HEADERS = {
     "last-event-id",
     "content-type",
     "accept",
+    "x-agentcore-accessor-wat",
+    "x-agentcore-accessor-jwt",
+    "x-agentcore-accessor-matrixid",
 }
 
 

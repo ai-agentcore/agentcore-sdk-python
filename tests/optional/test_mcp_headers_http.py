@@ -3,13 +3,142 @@
 import asyncio
 import socket
 from dataclasses import replace
+from importlib.metadata import version
 from pathlib import Path
 
+import httpx
 import pytest
+from packaging.version import Version
 
 from agentcore.controlplane import MCPDescriptor
 from agentcore.mcp import AsyncMCPClient
 from agentcore.runtime.config import load_agent_config
+from agentcore.runtime.context import RequestContext, use_context
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["direct", "managed", "managed-without-wat"])
+@pytest.mark.parametrize("cross_origin", [False, True])
+async def test_mcp_redirects_preserve_compatibility_and_accessor_boundary(
+    agent_config_path: Path,
+    mcp_descriptor: MCPDescriptor,
+    mode: str,
+    cross_origin: bool,
+) -> None:
+    pytest.importorskip("mcp")
+    uvicorn = pytest.importorskip("uvicorn")
+    from mcp.server.fastmcp import FastMCP
+
+    rejects_cross_origin = cross_origin and Version(version("mcp")) >= Version("1.30.0")
+    server_mcp = FastMCP(
+        "redirect-test", streamable_http_path="/canonical/mcp", json_response=True
+    )
+
+    @server_mcp.tool()
+    async def echo(value: str) -> str:
+        return value
+
+    app = server_mcp.streamable_http_app()
+    received: list[tuple[str, dict[str, str]]] = []
+
+    async def redirect(scope, receive, send):  # type: ignore[no-untyped-def]
+        if scope["type"] == "http":
+            received.append(
+                (scope["path"], {key.decode(): value.decode() for key, value in scope["headers"]})
+            )
+            if scope["path"] == "/mcp-servers/search-id":
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 307,
+                        "headers": [(b"location", target.encode())],
+                    }
+                )
+                await send({"type": "http.response.body", "body": b""})
+                return
+        await app(scope, receive, send)
+
+    with socket.socket() as listener, socket.socket() as other_listener:
+        listener.bind(("127.0.0.1", 0))
+        other_listener.bind(("127.0.0.1", 0))
+        url = f"http://127.0.0.1:{listener.getsockname()[1]}"
+        target_port = (other_listener if cross_origin else listener).getsockname()[1]
+        target = f"http://127.0.0.1:{target_port}/canonical/mcp"
+        server = uvicorn.Server(uvicorn.Config(redirect, log_config=None))
+        serving = asyncio.create_task(server.serve(sockets=[listener, other_listener]))
+        config = load_agent_config(agent_config_path)
+        config = replace(
+            config, spec=replace(config.spec, mcp=replace(config.spec.mcp, gateway_url=url))
+        )
+        client = (
+            AsyncMCPClient.direct(
+                url=f"{url}/mcp-servers/search-id",
+                headers_provider=lambda: {"Authorization": "Bearer direct-secret"},
+            )
+            if mode == "direct"
+            else AsyncMCPClient.platform(config, mcp_descriptor)
+        )
+        context = RequestContext(
+            {} if mode == "managed-without-wat" else {"X-AgentCore-Accessor-WAT": "user-wat"}
+        )
+        try:
+
+            async def wait_for_start() -> None:
+                while not server.started:
+                    if serving.done():
+                        await serving
+                        raise AssertionError("MCP server exited before startup")
+                    await asyncio.sleep(0.01)
+
+            await asyncio.wait_for(wait_for_start(), 5)
+            with use_context(context):
+                if rejects_cross_origin:
+                    with pytest.raises(
+                        httpx.HTTPStatusError, match="Redirect.*not followed"
+                    ) as error:
+                        await asyncio.wait_for(client.list_tools(), 5)
+                    assert error.value.response.status_code == 307
+                else:
+                    tools = await asyncio.wait_for(client.list_tools(), 5)
+                    assert [tool.name for tool in tools] == ["echo"]
+                    for value in ("first", "second"):
+                        result = await asyncio.wait_for(
+                            client.call_tool("echo", {"value": value}, headers={"X-Call": value}), 5
+                        )
+                        assert result.content[0].text == value
+        finally:
+            try:
+                await context.aclose()
+                await client.aclose()
+            finally:
+                server.should_exit = True
+                await asyncio.wait_for(serving, 5)
+
+    original = [headers for path, headers in received if path == "/mcp-servers/search-id"]
+    redirected = [headers for path, headers in received if path == "/canonical/mcp"]
+    authorization = "Bearer direct-secret" if mode == "direct" else "Bearer gateway-secret"
+    wat = "user-wat" if mode == "managed" else None
+    assert original
+    assert all(headers.get("authorization") == authorization for headers in original)
+    assert all(headers.get("x-agentcore-accessor-wat") == wat for headers in original)
+    if rejects_cross_origin:
+        assert not redirected, "The transport must not contact the cross-origin destination"
+        return
+    assert redirected
+    assert all(
+        headers.get("authorization") == (None if cross_origin else authorization)
+        for headers in redirected
+    )
+    assert all(
+        headers.get("x-agentcore-accessor-wat") == (None if cross_origin else wat)
+        for headers in redirected
+    )
+    sessions = {headers["mcp-session-id"] for headers in redirected if "mcp-session-id" in headers}
+    assert len(sessions) == 1
+    assert sorted(headers["x-call"] for headers in redirected if "x-call" in headers) == [
+        "first",
+        "second",
+    ]
 
 
 @pytest.mark.asyncio
@@ -103,13 +232,76 @@ async def test_managed_mcp_headers_over_http(
             assert len(sessions) == 3
             assert all(len(values) == 1 for values in sessions.values())
             if use_credential:
-                assert fetches == {"a": 1, "b": 1}
+                assert fetches["a"] > 1 and fetches["b"] > 1
+                before = dict(fetches)
                 reject_sessions = True
                 with pytest.raises(McpError, match="Session terminated"):
                     await clients[0].call_tool("echo", {"value": "lost-session"})
                 reject_sessions = False
                 await clients[0].call_tool("echo", {"value": "reconnected"})
-                assert fetches == {"a": 2, "b": 1}
+                assert fetches["a"] > before["a"] and fetches["b"] == before["b"]
+            start = len(received)
+
+            async def call_as(wat: str) -> None:
+                context = RequestContext({"X-AgentCore-Accessor-WAT": wat})
+                try:
+                    with use_context(context):
+                        await clients[2].list_tools()
+                        results = await asyncio.gather(
+                            *(
+                                clients[2].call_tool(
+                                    "echo", {"value": value}, headers={"X-Call": value}
+                                )
+                                for value in ("first", "second")
+                            )
+                        )
+                        assert [result.content[0].text for result in results] == ["first", "second"]
+                        await clients[2].call_tool("echo", {"value": "no-header"})
+                        with pytest.raises(Exception, match="protected"):
+                            await clients[2].call_tool(
+                                "echo", {}, headers={"X-AgentCore-Accessor-WAT": "forged"}
+                            )
+                finally:
+                    await context.aclose()
+
+            await asyncio.gather(call_as("wat-a"), call_as("wat-b"))
+            scoped = received[start:]
+            assert {headers.get("x-agentcore-accessor-wat") for headers in scoped} == {
+                "wat-a",
+                "wat-b",
+            }
+            assert all(headers["authorization"] == "Bearer gateway-secret" for headers in scoped)
+            identity_by_session: dict[str, set[str]] = {}
+            for headers in scoped:
+                if session_id := headers.get("mcp-session-id"):
+                    identity_by_session.setdefault(session_id, set()).add(
+                        headers["x-agentcore-accessor-wat"]
+                    )
+            assert len(identity_by_session) == 2
+            assert all(len(values) == 1 for values in identity_by_session.values())
+            for wat in ("wat-a", "wat-b"):
+                wire = [
+                    headers for headers in scoped if headers.get("x-agentcore-accessor-wat") == wat
+                ]
+                assert (
+                    len(
+                        {
+                            headers["mcp-session-id"]
+                            for headers in wire
+                            if "mcp-session-id" in headers
+                        }
+                    )
+                    == 1
+                )
+                assert sorted(headers["x-call"] for headers in wire if "x-call" in headers) == [
+                    "first",
+                    "second",
+                ]
+                assert "x-call" not in wire[-1], (
+                    "Per-call headers must not leak into later calls or DELETE"
+                )
+            await clients[2].call_tool("echo", {"value": "no-user"})
+            assert "x-agentcore-accessor-wat" not in received[-1]
         finally:
             await asyncio.gather(*(client.aclose() for client in clients))
             server.should_exit = True
