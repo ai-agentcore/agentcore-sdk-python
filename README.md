@@ -9,6 +9,7 @@
 | 你想做什么 | 入口 |
 | --- | --- |
 | 连接平台上的模型、MCP 和 Skill | [云端资源](#使用云端资源) |
+| 在部署时选择模型、模版、MCP 和 Skill | [环境变量配置](#通过环境变量选择资源) |
 | 使用自己的模型、MCP 或本地 Skill | [自定义资源](#使用自定义资源) |
 | 为 Agent 添加长期记忆 | [Memory](#使用-memory) |
 | 配置 MCP 凭证与固定 Header | [凭证与 Header](#凭证与-mcp-header) |
@@ -28,8 +29,6 @@
 ## 安装
 
 需要 Python 3.10+；AgentScope 2.x 需要 Python 3.11+。
-
-> 当前分支处于公开发布准备阶段。以下为公开发行版的安装方式，包的可用版本以正式发布为准。
 
 ```bash
 pip install alibabacloud-agentcore-sdk
@@ -136,6 +135,45 @@ async with AsyncAgentCore.auto() as core:
 `instruction` 是模版主 Agent 的 Prompt 字符串。`load_skills()` 按需加载随包 Skill 和引用的云端 Skill，返回现有 `Skill` 对象，可直接交给各框架的 `skill_tools()`。模型由应用独立配置。
 
 省略模版版本时使用 `latest` 标签；同一个模版对象成功加载 Skill 后会复用结果，不自动跟随引用标签变化。同步 `AgentCore` 提供相同入口，无需 `await`。请在 Core 的生命周期内加载和使用 Skill。完整用法见 [Agent 模版示例](examples/agent_template.py)。
+
+## 通过环境变量选择资源
+
+部署时可通过进程环境变量配置一个默认模型、一个 Agent 模版（AgentSpec），以及多个 MCP 和 Skill，不必把资源名称写死在代码中。先在当前 Workspace 准备对应资源并授予应用访问权限。使用 MCP 时需安装 `alibabacloud-agentcore-sdk[mcp]`。
+
+| 环境变量 | 内容 |
+| --- | --- |
+| `AGENTCORE_MODEL_CONNECTION_NAME` | 默认模型连接名称 |
+| `AGENTCORE_MODEL_NAME` | 默认连接下的模型名称，可选；省略时沿用连接的模型选择规则 |
+| `AGENTCORE_AGENT_SPEC_NAME` | 默认 AgentSpec 名称 |
+| `AGENTCORE_AGENT_SPEC_VERSION` | AgentSpec 版本，可选；省略时使用 `latest` 标签 |
+| `AGENTCORE_MCP_NAMES` | MCP 名称的 JSON 字符串数组 |
+| `AGENTCORE_SKILLS` | Skill 的 JSON 对象数组；每项包含 `name` 和可选的 `version`，省略版本时使用 `latest` 标签 |
+
+例如，将下列名称和版本替换为自己 Workspace 中的资源：
+
+```bash
+export AGENTCORE_MODEL_CONNECTION_NAME=test-mc
+export AGENTCORE_MODEL_NAME=qwen3.8-max
+export AGENTCORE_AGENT_SPEC_NAME=my-agent-spec
+export AGENTCORE_AGENT_SPEC_VERSION=1.0.0
+export AGENTCORE_MCP_NAMES='["test-mcp","another-mcp"]'
+export AGENTCORE_SKILLS='[{"name":"test-skill"},{"name":"another-skill","version":"1.0.0"}]'
+```
+
+```python
+async with AsyncAgentCore.auto() as core:
+    model = await core.model()
+    mcps = await core.mcps_from_env()
+    skills = await core.skills.from_env()
+    template = await core.templates.get()
+    instruction = template.instruction
+```
+
+[完整示例](examples/environment_resources.py)。同步 `AgentCore` 提供相同入口，无需 `await`。Python 框架便捷函数（如 LangChain 的 `model()`）也支持省略资源名。
+
+显式传资源名时保持原有行为，不继承默认连接的模型名称或默认 AgentSpec 的版本；省略资源名时，也可显式传模型名称或版本覆盖对应默认值。MCP／Skill 未配置时批量入口返回空列表，配置为 `[]` 也表示不加载；非法 JSON 或列表项会在调用相应入口时报错。
+
+只需配置实际使用的资源。SDK 不自动加载这些资源，也不自动将 AgentSpec 内的 Skill 与环境变量 Skill 合并。同一个已初始化客户端不会随环境变量变化自动切换资源；修改后请重新创建客户端或重新部署。认证与访问权限的配置方式不变。
 
 ## 使用 Memory
 

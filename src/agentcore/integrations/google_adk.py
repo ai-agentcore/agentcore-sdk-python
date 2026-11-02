@@ -19,7 +19,7 @@ from agentcore.skill import skill_tools as canonical_skill_tools
 
 
 def model(
-    resource_name: str,
+    resource_name: str | None = None,
     *,
     model_name: str | None = None,
     config_path: str | Path | None = None,

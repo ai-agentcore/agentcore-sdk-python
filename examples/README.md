@@ -19,6 +19,10 @@
 
 框架示例需要模型支持工具调用。请根据 MCP 和 Skill 的用途调整示例中的问题。
 
+## 环境变量资源选择
+
+先安装 `alibabacloud-agentcore-sdk[mcp]` 并按 SDK 首页配置环境变量，再运行 `python examples/environment_resources.py`。示例加载默认模型、AgentSpec，以及 MCP／Skill 列表；仅运行 MCP 工具发现，不执行 MCP 工具。代码见 [environment_resources.py](environment_resources.py)。
+
 ## 选择示例
 
 在仓库根目录运行，安装方式见 [README](../README.md)。以下云端示例用于部署在 AgentCore 中的应用。

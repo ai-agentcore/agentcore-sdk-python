@@ -35,7 +35,7 @@ async def _run_on_loop(
 
 
 def model(
-    resource_name: str,
+    resource_name: str | None = None,
     *,
     model_name: str | None = None,
     config_path: str | Path | None = None,
