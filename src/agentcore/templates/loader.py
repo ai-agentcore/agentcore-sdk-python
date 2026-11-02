@@ -15,6 +15,7 @@ from typing import Protocol
 
 import anyio
 
+from agentcore._resource_defaults import ResourceDefaults
 from agentcore.controlplane import TemplateArtifact
 from agentcore.errors import ConfigError, ResourceNotConfiguredError
 from agentcore.skill import AsyncSkills, Skill
@@ -94,6 +95,7 @@ class AsyncTemplates:
         workspace_dir: str | Path | None = None,
     ) -> None:
         self._runtime = runtime
+        self._resource_defaults = ResourceDefaults()
         self._skills = skills
         self._workspace = (
             Path(
@@ -104,7 +106,8 @@ class AsyncTemplates:
             / ".templates"
         )
 
-    async def get(self, name: str, *, version: str | None = None) -> AgentTemplate:
+    async def get(self, name: str | None = None, *, version: str | None = None) -> AgentTemplate:
+        name, version = self._resource_defaults.agent_spec(name, version)
         _validate_directory_component(name, "template name")
         if version is not None:
             _validate_directory_component(version, "template version")

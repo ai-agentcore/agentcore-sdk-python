@@ -18,6 +18,7 @@ import httpx
 from anyio.from_thread import BlockingPortal, start_blocking_portal
 
 from agentcore._logging import safe_url
+from agentcore._resource_defaults import ResourceDefaults
 from agentcore.auth.access_key import AccessKeyCredential
 from agentcore.auth.resource_sts import ResourceSTSProvider
 from agentcore.controlplane import AgentCoreControlPlane, ModelDescriptor
@@ -56,7 +57,7 @@ class FrameworkModelSettings:
 
 
 def framework_model_settings(
-    resource_name: str,
+    resource_name: str | None = None,
     *,
     model: str | None = None,
     config_path: str | Path | None = None,
@@ -64,6 +65,7 @@ def framework_model_settings(
     control_plane_endpoint: str | None = None,
     access_key_credential: AccessKeyCredential | None = None,
 ) -> FrameworkModelSettings:
+    resource_name, model = ResourceDefaults().model(resource_name, model)
     logger.info(
         "agentcore.integration.model.resolve.started resource_name=%s model=%s",
         resource_name,

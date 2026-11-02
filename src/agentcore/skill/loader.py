@@ -20,6 +20,7 @@ from typing import Protocol
 import anyio
 import yaml
 
+from agentcore._resource_defaults import ResourceDefaults
 from agentcore.controlplane import SkillArtifact
 from agentcore.errors import ConfigError, ResourceNotConfiguredError
 
@@ -67,6 +68,7 @@ class AsyncSkills:
         _runtime_provider: SkillRuntimeProvider | None = None,
     ) -> None:
         self._control_plane = control_plane
+        self._resource_defaults = ResourceDefaults()
         self._workspace_id = workspace_id
         self._runtime_provider = _runtime_provider
         configured_workspace = workspace_dir or os.getenv("AGENTCORE_SKILL_WORKSPACE_DIR")
@@ -91,6 +93,12 @@ class AsyncSkills:
             len(skills),
         )
         return skills
+
+    async def from_env(self) -> list[Skill]:
+        return [
+            await self.managed(name, version=version)
+            for name, version in self._resource_defaults.skills()
+        ]
 
     async def managed(self, name: str, *, version: str | None = None) -> Skill:
         control_plane = self._control_plane

@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar, cast, overloa
 import anyio
 from anyio.from_thread import BlockingPortal, start_blocking_portal
 
+from agentcore._resource_defaults import ResourceDefaults
 from agentcore.auth.access_key import AccessKeyCredential
 from agentcore.auth.agent_sa_token import AgentSATokenSource
 from agentcore.auth.bound_credentials import AsyncBoundCredentials
@@ -101,7 +102,9 @@ class AsyncCoreProtocol(Protocol):
     credentials: Any
     collaboration: Any
 
-    async def model(self, resource_name: str, *, model: str | None = None) -> Any: ...
+    async def model(self, resource_name: str | None = None, *, model: str | None = None) -> Any: ...
+
+    async def mcps_from_env(self) -> list[Any]: ...
 
     def direct_model(self, **kwargs: Any) -> Any: ...
 
@@ -161,6 +164,7 @@ class AsyncAgentCore:
             self._runtime.config if self._runtime is not None else None
         )
         self._resource_context = explicit_context
+        self._resource_defaults = ResourceDefaults()
         self._access_key_credential = access_key_credential
         self._model_clients: dict[tuple[str, str | None], AsyncModelClient] = {}
         self._model_lock = anyio.Lock()
@@ -241,11 +245,12 @@ class AsyncAgentCore:
 
     async def model(
         self,
-        resource_name: str,
+        resource_name: str | None = None,
         *,
         model: str | None = None,
     ) -> AsyncModelClient:
         self._ensure_open()
+        resource_name, model = self._resource_defaults.model(resource_name, model)
         runtime = await self._ensure_runtime()
         config = runtime.config
         if self._control_plane is None:
@@ -399,6 +404,10 @@ class AsyncAgentCore:
                 descriptor.mcp_server_id,
             )
             return client
+
+    async def mcps_from_env(self) -> list[AsyncMCPClient]:
+        self._ensure_open()
+        return [await self.mcp(name) for name in self._resource_defaults.mcp_names()]
 
     def direct_mcp(
         self,
@@ -659,7 +668,7 @@ class AgentCore:
     def __exit__(self, *_args: object) -> None:
         self.close()
 
-    def model(self, resource_name: str, *, model: str | None = None) -> _SyncModel:
+    def model(self, resource_name: str | None = None, *, model: str | None = None) -> _SyncModel:
         with self._lock:
             async_core = self._get()
             resolved = self._portal_required().call(
@@ -709,6 +718,14 @@ class AgentCore:
                 )
             )
             return _SyncMCP(resolved, self._portal_required(), self._operation)
+
+    def mcps_from_env(self) -> list[_SyncMCP]:
+        with self._lock:
+            async_core = self._get()
+            clients = self._portal_required().call(async_core.mcps_from_env)
+            return [
+                _SyncMCP(client, self._portal_required(), self._operation) for client in clients
+            ]
 
     def direct_mcp(self, **kwargs: Any) -> _SyncMCP:
         with self._lock:
@@ -1130,6 +1147,10 @@ class _SyncSkills:
         with self._operation():
             return self._portal.call(partial(self._skills.managed, name, version=version))
 
+    def from_env(self) -> list[Any]:
+        with self._operation():
+            return cast(list[Any], self._portal.call(self._skills.from_env))
+
 
 class _SyncTemplate:
     def __init__(
@@ -1162,7 +1183,7 @@ class _SyncTemplates:
         self._portal = portal
         self._operation = operation
 
-    def get(self, name: str, *, version: str | None = None) -> _SyncTemplate:
+    def get(self, name: str | None = None, *, version: str | None = None) -> _SyncTemplate:
         with self._operation():
             template = self._portal.call(partial(self._templates.get, name, version=version))
             return _SyncTemplate(template, self._portal, self._operation)
