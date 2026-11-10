@@ -8,7 +8,7 @@
 python -m pip install ./packages/memory-plugin
 ```
 
-源码包版本为 0.1.0，尚未发布。运行要求 Python 3.10+；异步 HTTP 客户端需要在退出时关闭。
+源码包版本为 0.1.7，尚未发布。运行要求 Python 3.10+；异步 HTTP 客户端需要在退出时关闭。
 
 ```python
 import os
