@@ -65,7 +65,7 @@ packages = ["src/agentcore"]
 alibabacloud-agentcore-collaboration = { workspace = true }
 
 [tool.uv.workspace]
-members = ["packages/collaboration"]
+members = ["packages/collaboration", "packages/memory-plugin"]
 
 [tool.pytest.ini_options]
 addopts = "-ra"
