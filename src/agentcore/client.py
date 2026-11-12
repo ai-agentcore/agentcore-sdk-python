@@ -31,6 +31,7 @@ from agentcore.mcp._headers import merge_mcp_headers
 from agentcore.mcp.client import HeadersProvider as MCPHeadersProvider
 from agentcore.memory._transport import _MemoryRuntime
 from agentcore.memory.client import AsyncMemoryStore
+from agentcore.memory.context_client import AsyncContextMemoryClient, ContextMemoryClient
 from agentcore.memory.models import (
     AddMemoriesResult,
     AddMemoriesSubmission,
@@ -46,9 +47,11 @@ from agentcore.model import AsyncModelClient
 from agentcore.model.client import APIKeyProvider
 from agentcore.model.client import HeadersProvider as ModelHeadersProvider
 from agentcore.runtime.config import AgentConfig
+from agentcore.runtime.environment import DEFAULT_ENV_PATH, RuntimeEnvironmentProvider
 from agentcore.runtime.startup import (
     DEBUG_TOKEN_ENV,
     DebugRuntimeSource,
+    ManagedRuntimeSource,
     RuntimeBindings,
     RuntimeSource,
     UnconfiguredRuntimeSource,
@@ -120,6 +123,8 @@ class AsyncCoreProtocol(Protocol):
 
     def memory_store(self, memory_store_name: str) -> Any: ...
 
+    def context_memory(self, memory_store_name: str, *, endpoint: str | None = None) -> Any: ...
+
     async def aclose(self) -> None: ...
 
 
@@ -159,6 +164,12 @@ class AsyncAgentCore:
                 control_plane_endpoint=control_plane_endpoint,
             )
         self._runtime: RuntimeBindings | None = self._runtime_source.initial
+        self._memory_environment = (
+            RuntimeEnvironmentProvider(
+                env_path or os.getenv("AGENTCORE_ENV_PATH") or DEFAULT_ENV_PATH
+            )
+            if isinstance(self._runtime_source, ManagedRuntimeSource) else None
+        )
         self._runtime_lock = anyio.Lock()
         self.config: AgentConfig | None = (
             self._runtime.config if self._runtime is not None else None
@@ -433,6 +444,15 @@ class AsyncAgentCore:
             _runtime_provider=self._memory_runtime,
         )
 
+    def context_memory(
+        self, memory_store_name: str, *, endpoint: str | None = None,
+    ) -> AsyncContextMemoryClient:
+        self._ensure_open()
+        _normalize_control_plane_endpoint(endpoint)
+        return AsyncContextMemoryClient(
+            memory_store_name, _runtime_provider=partial(self._context_memory_runtime, endpoint)
+        )
+
     async def aclose(self) -> None:
         if self._closed:
             return
@@ -594,6 +614,22 @@ class AsyncAgentCore:
             access_key_credential=self._access_key_credential,
         )
 
+    async def _context_memory_runtime(self, endpoint: str | None) -> _MemoryRuntime:
+        self._ensure_open()
+        context = await self._ensure_resource_context()
+        if endpoint is None:
+            endpoint = (
+                await anyio.to_thread.run_sync(partial(
+                    self._memory_environment.value, "AGENTCORE_MEMORY_ENDPOINT", default=""
+                )) if self._memory_environment is not None
+                else os.getenv("AGENTCORE_MEMORY_ENDPOINT", "").strip()
+            ) or f"https://agentcore.{context.region_id}.aliyuncs.com"
+        _normalize_control_plane_endpoint(endpoint)
+        return _MemoryRuntime(
+            context.workspace_id, context.region_id, endpoint,
+            self._resource_sts, self._access_key_credential,
+        )
+
 
 class AgentCore:
     """Synchronous facade backed by one AnyIO BlockingPortal."""
@@ -743,6 +779,13 @@ class AgentCore:
                 self._portal_required(),
                 self._operation,
             )
+
+    def context_memory(
+        self, memory_store_name: str, *, endpoint: str | None = None,
+    ) -> ContextMemoryClient:
+        with self._lock:
+            client = self._get().context_memory(memory_store_name, endpoint=endpoint)
+            return ContextMemoryClient(client, self._portal_required(), self._operation)
 
     @property
     def skills(self) -> _SyncSkills:

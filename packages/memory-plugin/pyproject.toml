@@ -5,11 +5,11 @@ build-backend = "hatchling.build"
 [project]
 name = "alibabacloud-agentcore-memory-plugin"
 version = "0.1.7"
-description = "Optional event capture and recall through an AgentCore Memory gateway"
+description = "Optional native Context Memory capture and recall adapter"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
-dependencies = ["httpx>=0.27,<1"]
+dependencies = ["alibabacloud-agentcore-sdk>=0.1.7,<1", "httpx>=0.27,<1"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agentcore_memory_plugin"]

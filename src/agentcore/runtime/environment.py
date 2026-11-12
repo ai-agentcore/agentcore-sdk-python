@@ -66,13 +66,15 @@ class RuntimeEnvironmentProvider:
         )
         return environment
 
-    def value(self, name: str) -> str:
+    def value(self, name: str, *, default: str | None = None) -> str:
         """Read one named value, reloading the runtime projection on every call."""
         if _EXPORT_NAME.fullmatch(name) is None:
             raise ConfigError("runtime environment name is invalid")
         values = self._read()
         value = (values.get(name) or os.getenv(name) or "").strip()
         if not value:
+            if default is not None:
+                return default
             raise ConfigError(f"runtime env requires {name}")
         return value
 

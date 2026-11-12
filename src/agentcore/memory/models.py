@@ -35,6 +35,7 @@ class MemoryScope:
     agent_id: str | None = None
     session_id: str | None = None
     user_id: str | None = None
+    team_id: str | None = None
 
 
 @dataclass(frozen=True)

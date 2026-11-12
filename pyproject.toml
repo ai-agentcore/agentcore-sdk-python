@@ -63,6 +63,7 @@ packages = ["src/agentcore"]
 
 [tool.uv.sources]
 alibabacloud-agentcore-collaboration = { workspace = true }
+alibabacloud-agentcore-sdk = { workspace = true }
 
 [tool.uv.workspace]
 members = ["packages/collaboration", "packages/memory-plugin"]
