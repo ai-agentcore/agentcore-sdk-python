@@ -33,6 +33,7 @@
 | [Agent 模版与 LangChain](agent_template.py) | `langchain` | `python -m examples.agent_template` |
 | [MCP 凭证与 Header](mcp_credentials.py) | `mcp,credentials` | `python -m examples.mcp_credentials` |
 | [Memory 写入与检索](memory.py) | 无 | `python -m examples.memory` |
+| [原生 Context Memory](context_memory.py) | 无 | `python -m examples.context_memory existing-store search 'query'` |
 | [自定义资源](direct_resources.py) | `mcp` | `python -m examples.direct_resources` |
 | [最小 Agent 服务](basic_agent.py) | `server` | `uvicorn examples.basic_agent:server --host 0.0.0.0 --port 8080` |
 | [LangChain 完整服务](langchain_server.py)（Python 3.11+） | `mcp,server,langchain` | `uvicorn examples.langchain_server:server --host 0.0.0.0 --port 8080 --log-level info` |

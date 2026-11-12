@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "alibabacloud-agentcore-sdk"
-version = "0.1.6"
+version = "0.1.7"
 description = "Python runtime SDK for Alibaba Cloud AgentCore high-code agents"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -63,9 +63,10 @@ packages = ["src/agentcore"]
 
 [tool.uv.sources]
 alibabacloud-agentcore-collaboration = { workspace = true }
+alibabacloud-agentcore-sdk = { workspace = true }
 
 [tool.uv.workspace]
-members = ["packages/collaboration"]
+members = ["packages/collaboration", "packages/memory-plugin"]
 
 [tool.pytest.ini_options]
 addopts = "-ra"
