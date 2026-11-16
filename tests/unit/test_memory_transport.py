@@ -431,6 +431,27 @@ async def test_async_add_returns_submission_and_maps_reference_time_once(options
         (SimpleNamespace(task_id="task-1", status="PENDING"), MemoryTaskStatus.PENDING, (), None),
         (SimpleNamespace(task_id="task-1", status="RUNNING"), MemoryTaskStatus.RUNNING, (), None),
         (
+            SimpleNamespace(task_id="task-1", status="PENDING", memories=[]),
+            MemoryTaskStatus.PENDING, (), None,
+        ),
+        (
+            SimpleNamespace(task_id="task-1", status="RUNNING", memories=[]),
+            MemoryTaskStatus.RUNNING, (), None,
+        ),
+        (
+            SimpleNamespace(task_id="task-1", status="SUCCEEDED"),
+            MemoryTaskStatus.SUCCEEDED, (), None,
+        ),
+        (SimpleNamespace(task_id="task-1", status="FAILED"), MemoryTaskStatus.FAILED, (), None),
+        (
+            SimpleNamespace(
+                task_id="task-1", status="FAILED",
+                memories=[SimpleNamespace(memory_id="memory-1")],
+                error=SimpleNamespace(code="ExtractionFailed", message="partial failure"),
+            ),
+            MemoryTaskStatus.FAILED, ("memory-1",), ("ExtractionFailed", "partial failure"),
+        ),
+        (
             SimpleNamespace(
                 task_id="task-1",
                 status="SUCCEEDED",
@@ -506,9 +527,9 @@ async def test_get_memory_task_parses_all_public_statuses(
         None,
         SimpleNamespace(task_id="task-1", status=None),
         SimpleNamespace(task_id="task-1", status="CANCELLED"),
-        SimpleNamespace(task_id="task-1", status="SUCCEEDED"),
-        SimpleNamespace(task_id="task-1", status="FAILED"),
-        SimpleNamespace(task_id="task-1", status="PENDING", memories=[]),
+        SimpleNamespace(task_id="task-1", status="RUNNING", memories={}),
+        SimpleNamespace(task_id="task-1", status="FAILED", memories=[{}]),
+        SimpleNamespace(task_id="task-1", status="FAILED", error={}),
     ],
 )
 async def test_get_memory_task_rejects_malformed_success(data: Any) -> None:
@@ -1259,3 +1280,36 @@ def test_default_generated_client_supports_long_term_access_key_and_static_sts(
     assert resolved.access_key_id == "explicit-ak"
     assert resolved.access_key_secret == "explicit-sk"
     assert resolved.security_token == credential.security_token
+
+
+@pytest.mark.asyncio
+async def test_async_add_preserves_all_rule_task_ids_without_polling() -> None:
+    harness = _harness({
+        "AddMemories": SimpleNamespace(
+            status_code=200,
+            body=SimpleNamespace(success=True, data=SimpleNamespace(
+                task_id="task-2", task_ids=["task-1", "task-2"],
+            )),
+        ),
+    })
+    result = await harness.store.add_memories(text="fact")
+    assert result.task_id == "task-2"
+    assert result.task_ids == ("task-1", "task-2")
+    assert [call.operation for call in harness.client.calls] == ["AddMemories"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("task_ids", ["task-1", [""]])
+async def test_async_add_malformed_task_ids_is_outcome_unknown(task_ids: Any) -> None:
+    harness = _harness({
+        "AddMemories": SimpleNamespace(
+            status_code=200,
+            body=SimpleNamespace(success=True, request_id="request-multi", data=SimpleNamespace(
+                task_id="task-1", task_ids=task_ids,
+            )),
+        ),
+    })
+    with pytest.raises(AddMemoriesOutcomeUnknownError) as caught:
+        await harness.store.add_memories(text="fact")
+    assert caught.value.request_id == "request-multi"
+    assert len(harness.client.calls) == 1

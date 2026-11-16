@@ -125,7 +125,17 @@ class _MemoryTransport:
                     "data.task_id must be a non-empty string",
                     details,
                 )
-            return AddMemoriesSubmission(task_id)
+            raw_task_ids = _field(data, "task_ids")
+            task_ids: tuple[str, ...] = ()
+            if raw_task_ids is not None:
+                if not _is_sequence(raw_task_ids) or any(
+                    not _non_empty_string(item) for item in raw_task_ids
+                ):
+                    self._invalid_response(
+                        "AddMemories", "data.task_ids must be a list of non-empty strings", details
+                    )
+                task_ids = tuple(raw_task_ids)
+            return AddMemoriesSubmission(task_id, task_ids)
         raw_memories = _field(data, "memories")
         if raw_memories is None:
             self._invalid_response("AddMemories", "data.memories is missing", details)
@@ -161,14 +171,9 @@ class _MemoryTransport:
             status = MemoryTaskStatus(raw_status)
         except ValueError:
             self._contract("GetMemoryTask", "data.status is not a public task status")
-        if status in {MemoryTaskStatus.PENDING, MemoryTaskStatus.RUNNING}:
-            if _field(data, "memories") is not None or _field(data, "error") is not None:
-                self._contract("GetMemoryTask", "non-terminal task contains result fields")
-            return MemoryTask(task_id=returned_task_id, status=status)
-        if status is MemoryTaskStatus.SUCCEEDED:
-            if _field(data, "error") is not None:
-                self._contract("GetMemoryTask", "successful task contains error")
-            raw_memories = _field(data, "memories")
+        raw_memories = _field(data, "memories")
+        memory_ids: tuple[str, ...] = ()
+        if raw_memories is not None:
             if not _is_sequence(raw_memories):
                 self._contract("GetMemoryTask", "data.memories must be a list")
             memory_ids = tuple(
@@ -179,27 +184,21 @@ class _MemoryTransport:
                 )
                 for item in raw_memories
             )
-            return MemoryTask(
-                task_id=returned_task_id,
-                status=status,
-                memory_ids=memory_ids,
-            )
-        if _field(data, "memories") is not None:
-            self._contract("GetMemoryTask", "failed task contains memories")
         raw_error = _field(data, "error")
-        if raw_error is None:
-            self._contract("GetMemoryTask", "data.error is missing")
-        task_error = MemoryTaskError(
-            code=self._required_string(
-                _field(raw_error, "code"), "GetMemoryTask", "data.error.code"
-            ),
-            message=self._required_string(
-                _field(raw_error, "message"), "GetMemoryTask", "data.error.message"
-            ),
-        )
+        task_error = None
+        if raw_error is not None:
+            task_error = MemoryTaskError(
+                code=self._required_string(
+                    _field(raw_error, "code"), "GetMemoryTask", "data.error.code"
+                ),
+                message=self._required_string(
+                    _field(raw_error, "message"), "GetMemoryTask", "data.error.message"
+                ),
+            )
         return MemoryTask(
             task_id=returned_task_id,
             status=status,
+            memory_ids=memory_ids,
             error=task_error,
         )
 
