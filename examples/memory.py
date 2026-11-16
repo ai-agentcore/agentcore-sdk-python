@@ -17,8 +17,9 @@ async def main():
         print("Submitted memory task:", submission.task_id)
 
         # Query when needed; PENDING/RUNNING tasks can be checked again later.
-        task = await store.get_memory_task(submission.task_id)
-        print(task.status, task.memory_ids, task.error)
+        for task_id in submission.task_ids or (submission.task_id,):
+            task = await store.get_memory_task(task_id)
+            print(task.status, task.memory_ids, task.error)
         # Pass sync=True to add_memories() if your application needs memory_ids directly.
 
         # Newly added memories may take time to become searchable.

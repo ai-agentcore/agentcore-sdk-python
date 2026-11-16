@@ -84,6 +84,10 @@ class AddMemoriesResult:
 @dataclass(frozen=True)
 class AddMemoriesSubmission:
     task_id: str
+    task_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "task_ids", tuple(self.task_ids))
 
 
 class MemoryTaskStatus(str, Enum):
