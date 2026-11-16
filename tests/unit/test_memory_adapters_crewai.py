@@ -172,3 +172,27 @@ async def test_crewai_failed_or_cancelled_task_never_calls_memory():
     with pytest.raises(asyncio.CancelledError):
         await crew(binding, CancelledModel(model="test")).akickoff()
     store.add_memories.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["akickoff", "kickoff_async"])
+async def test_context_memory_task_writes_events_on_owner_loop(context_memory_client, method):
+    owner = asyncio.get_running_loop()
+    create = context_memory_client.create_events.side_effect
+
+    async def checked_create(events, *, scope):
+        assert asyncio.get_running_loop() is owner
+        return await create(events, scope=scope)
+
+    context_memory_client.create_events.side_effect = checked_create
+    adapter = AgentCoreTaskMemory(context_memory_client, write_back=True)
+    binding = await adapter.prepare("question", scopes=scopes("alice"))
+    result = await getattr(crew(binding, ReplyModel(model="test")), method)()
+    assert result.raw == "answer"
+    context_memory_client.create_events.assert_awaited_once()
+    call = context_memory_client.create_events.await_args
+    assert call.kwargs["scope"] == scopes("alice").write
+    assert [e.to_dict()["data"]["content"][0]["text"] for e in call.args[0]] == [
+        "question",
+        "answer",
+    ]

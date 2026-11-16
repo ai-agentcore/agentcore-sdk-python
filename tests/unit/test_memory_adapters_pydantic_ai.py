@@ -85,8 +85,9 @@ async def test_pydantic_real_tool_loop_and_new_turn_only():
 
 
 @pytest.mark.asyncio
-async def test_pydantic_shared_capability_isolates_concurrent_runs():
-    store = make_store()
+@pytest.mark.parametrize("native", [False, True])
+async def test_pydantic_shared_capability_isolates_concurrent_runs(native, context_memory_client):
+    store = context_memory_client if native else make_store()
 
     async def model(messages, info):
         await asyncio.sleep(0)
@@ -98,7 +99,10 @@ async def test_pydantic_shared_capability_isolates_concurrent_runs():
     a, b = await asyncio.gather(agent.run("q", deps="alice"), agent.run("q", deps="bob"))
     assert "fact-alice" in a.output and "fact-bob" not in a.output
     assert "fact-bob" in b.output and "fact-alice" not in b.output
-    store.add_memories.assert_not_called()
+    if native:
+        store.create_events.assert_not_called()
+    else:
+        store.add_memories.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -208,3 +212,30 @@ async def test_pydantic_cancelled_stream_does_not_write():
     with pytest.raises(asyncio.CancelledError):
         await running
     store.add_memories.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_context_memory_tool_loop_writes_only_current_turn(context_memory_client):
+    def model(messages, info):
+        if messages[-1].kind == "request" and any(
+            p.part_kind == "tool-return" for p in messages[-1].parts
+        ):
+            return ModelResponse(parts=[TextPart("answer")], finish_reason="stop")
+        return ModelResponse(parts=[ToolCallPart("lookup", {}, "c1")])
+
+    agent = Agent(
+        FunctionModel(model),
+        capabilities=[
+            AgentCoreMemoryCapability(context_memory_client, scope_resolver=scopes, write_back=True)
+        ],
+    )
+
+    @agent.tool_plain
+    async def lookup() -> str:
+        return "private tool output"
+
+    first = await agent.run("question one", deps="alice")
+    await agent.run("question two", deps="alice", message_history=first.all_messages())
+    assert context_memory_client.create_events.await_count == 2
+    events = context_memory_client.create_events.await_args.args[0]
+    assert [e.to_dict()["data"]["content"][0]["text"] for e in events] == ["question two", "answer"]

@@ -8,7 +8,7 @@ from langchain_core.messages import BaseMessage, SystemMessage
 from typing_extensions import NotRequired, TypedDict
 
 from agentcore.integrations.memory._common import recall, record, reference_text, validate_top_k
-from agentcore.memory import AsyncMemoryStore, MemoryMessage, MemoryScope
+from agentcore.memory import AsyncContextMemoryClient, AsyncMemoryStore, MemoryMessage, MemoryScope
 
 
 class MemoryNodeState(TypedDict):
@@ -22,8 +22,10 @@ class MemoryNodeState(TypedDict):
 
 
 class AgentCoreMemoryNodes:
-    def __init__(self, store: AsyncMemoryStore, *, top_k: int = 5) -> None:
-        validate_top_k(top_k)
+    def __init__(
+        self, store: AsyncMemoryStore | AsyncContextMemoryClient, *, top_k: int = 5
+    ) -> None:
+        validate_top_k(top_k, store)
         self._store = store
         self._top_k = top_k
 

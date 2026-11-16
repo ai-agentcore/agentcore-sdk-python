@@ -105,3 +105,41 @@ def mcp_descriptor() -> MCPDescriptor:
         type="HOSTED",
         status="READY",
     )
+
+
+@pytest.fixture
+def context_memory_client():
+    from unittest.mock import AsyncMock
+
+    from agentcore.memory import (
+        AsyncContextMemoryClient,
+        ContextMemory,
+        ContextMemorySearchHit,
+        ContextMemorySearchResult,
+        CreateEventsResult,
+        EventReceipt,
+        MemoryContent,
+    )
+
+    client = AsyncMock(spec=AsyncContextMemoryClient)
+    client.memory_store_name = "memory"
+
+    async def search(query, *, scope, top_k):
+        return ContextMemorySearchResult(
+            (
+                ContextMemorySearchHit(
+                    ContextMemory("id", MemoryContent(f"fact-{scope.agent_id}"), scope),
+                    1,
+                    1,
+                ),
+            )
+        )
+
+    async def create(events, *, scope):
+        return CreateEventsResult(
+            tuple(EventReceipt(i, "STORED", f"event-{i}") for i in range(len(events)))
+        )
+
+    client.search_memories.side_effect = search
+    client.create_events.side_effect = create
+    return client

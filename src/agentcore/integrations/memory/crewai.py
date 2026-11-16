@@ -18,7 +18,7 @@ from agentcore.integrations.memory._common import (
     reference_text,
     validate_top_k,
 )
-from agentcore.memory import AsyncMemoryStore, MemoryMessage
+from agentcore.memory import AsyncContextMemoryClient, AsyncMemoryStore, MemoryMessage
 
 
 @dataclass(frozen=True)
@@ -33,9 +33,13 @@ class AgentCoreTaskMemory:
     """Prepare a fresh binding per Task; never mutate a Task, Crew or native memory backend."""
 
     def __init__(
-        self, store: AsyncMemoryStore, *, write_back: bool = False, top_k: int = 5
+        self,
+        store: AsyncMemoryStore | AsyncContextMemoryClient,
+        *,
+        write_back: bool = False,
+        top_k: int = 5,
     ) -> None:
-        validate_top_k(top_k)
+        validate_top_k(top_k, store)
         self._store = store
         self._write_back = write_back
         self._top_k = top_k

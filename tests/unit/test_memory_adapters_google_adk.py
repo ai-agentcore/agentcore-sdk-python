@@ -181,12 +181,13 @@ async def test_adk_session_import_validation_and_text_filtering():
 
 
 @pytest.mark.asyncio
-async def test_documented_adk_example(caplog):
+@pytest.mark.parametrize("native", [False, True])
+async def test_documented_adk_example(caplog, native, context_memory_client):
     caplog.set_level("INFO", logger="agentcore.integrations.memory.google_adk")
     module = runpy.run_path(
         str(Path(__file__).parents[2] / "examples/memory_frameworks/google_adk_agent.py")
     )
-    store = make_store()
+    store = context_memory_client if native else make_store()
     events = await module["run"](
         store,
         TestModel(model="test-model"),
@@ -195,10 +196,74 @@ async def test_documented_adk_example(caplog):
     )
     assert events[-1].is_final_response()
     assert store.search_memories.await_count == 1
-    assert store.add_memories.await_count == 1
-    assert store.add_memories.await_args.kwargs["sync"] is False
-    assert "write.submitted store=memory task_id=task-1" in caplog.text
-    store.get_memory_task.assert_not_called()
-    assert store.add_memories.await_args.kwargs["scope"] == MemoryScope(
-        agent_id="a", session_id="s"
+    if native:
+        store.create_events.assert_awaited_once()
+        assert store.create_events.await_args.kwargs["scope"] == MemoryScope(
+            agent_id="a", session_id="s"
+        )
+        events = store.create_events.await_args.args[0]
+        assert [e.to_dict()["data"]["role"] for e in events] == ["user", "assistant"]
+        assert events[-1].to_dict()["data"]["content"] == [{"type": "text", "text": "answer"}]
+    else:
+        assert store.add_memories.await_count == 1
+        assert store.add_memories.await_args.kwargs["sync"] is False
+        assert "write.submitted store=memory task_id=task-1" in caplog.text
+        store.get_memory_task.assert_not_called()
+        assert store.add_memories.await_args.kwargs["scope"] == MemoryScope(
+            agent_id="a", session_id="s"
+        )
+
+
+@pytest.mark.asyncio
+async def test_context_memory_rejects_adk_metadata(context_memory_client):
+    service = AgentCoreMemoryService(
+        context_memory_client, partition_resolver=lambda app, user: "a"
     )
+    with pytest.raises(MemoryValidationError, match="custom_metadata"):
+        await service.add_events_to_memory(
+            app_name="app", user_id="u", events=[], custom_metadata={"key": "value"}
+        )
+    context_memory_client.create_events.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("whole_session", [False, True])
+async def test_context_memory_preserves_adk_event_times(context_memory_client, whole_session):
+    service = AgentCoreMemoryService(
+        context_memory_client, partition_resolver=lambda app, user: "a"
+    )
+    events = [
+        Event(
+            author="user",
+            timestamp=1609459200.125,
+            content=types.Content(role="user", parts=[types.Part(text="question")]),
+        ),
+        Event(
+            author="assistant",
+            timestamp=1609459201.25,
+            partial=True,
+            content=types.Content(role="model", parts=[types.Part(text="partial")]),
+        ),
+        Event(
+            author="assistant",
+            timestamp=1609459202.5,
+            content=types.Content(role="model", parts=[types.Part(text="answer")]),
+        ),
+    ]
+    if whole_session:
+        await service.add_session_to_memory(
+            Session(id="s", app_name="app", user_id="u", events=events)
+        )
+    else:
+        await service.add_events_to_memory(
+            app_name="app", user_id="u", session_id="s", events=events
+        )
+    context_memory_client.create_events.assert_awaited_once()
+    call = context_memory_client.create_events.await_args
+    assert call.kwargs["scope"] == MemoryScope(agent_id="a", session_id="s")
+    assert [e.timestamp for e in call.args[0]] == [1609459200125, 1609459202500]
+    assert [e.to_dict()["data"]["content"][0]["text"] for e in call.args[0]] == [
+        "question",
+        "answer",
+    ]
+    assert [e.timestamp for e in events] == [1609459200.125, 1609459201.25, 1609459202.5]

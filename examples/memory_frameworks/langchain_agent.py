@@ -1,4 +1,4 @@
-"""Call run() with an existing AsyncMemoryStore and LangChain chat model."""
+"""Call run() with an existing memory client and LangChain chat model."""
 
 from langchain.agents import create_agent
 
