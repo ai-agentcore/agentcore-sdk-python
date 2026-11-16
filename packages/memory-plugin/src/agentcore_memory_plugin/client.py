@@ -514,9 +514,11 @@ class MemorySession:
                 raise MemoryPluginError("invalid_memory")
             scope = row["scope"]
             if (
-                scope.get("userId") != self.binding.user_id
+                (self.binding.user_id is not None and scope.get("userId") != self.binding.user_id)
                 or scope.get("agentId") != self.binding.agent_id
-                or scope.get("teamId") != self.binding.team_id
+                or (
+                    self.binding.team_id is not None and scope.get("teamId") != self.binding.team_id
+                )
                 or (mode == "session" and scope.get("sessionId") != self.session_id)
             ):
                 raise MemoryPluginError("search_scope_mismatch")
