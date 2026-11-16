@@ -61,6 +61,21 @@ def _json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
 
 
+def _fit_reference(
+    rendered: list[dict[str, str]], candidate: dict[str, str], max_chars: int
+) -> dict[str, str] | None:
+    text = candidate["text"]
+    low, high = 0, min(len(text), max_chars)
+    while low < high:
+        middle = (low + high + 1) // 2
+        prefix = {**candidate, "text": text[:middle]}
+        if len(_REFERENCE + _json([*rendered, prefix])) <= max_chars:
+            low = middle
+        else:
+            high = middle - 1
+    return {**candidate, "text": text[:low]} if low else None
+
+
 def _boolean(value: str) -> bool:
     normalized = value.strip().lower()
     if normalized not in ("true", "false"):
@@ -310,18 +325,14 @@ class MemoryPlugin:
         )
         rendered: list[dict[str, str]] = []
         for hit in result.memories:
-            text = hit.memory.content.text[:max_chars]
-            while text:
-                candidate = {"id": hit.memory.memory_id, "text": text}
-                if hit.memory.type is not None:
-                    candidate["type"] = hit.memory.type.value
-                if hit.memory.source is not None:
-                    candidate["source"] = hit.memory.source.value
-                size = len(_REFERENCE + _json([*rendered, candidate]))
-                if size <= max_chars:
-                    rendered.append(candidate)
-                    break
-                text = text[: max(0, len(text) - (size - max_chars))]
+            candidate = {"id": hit.memory.memory_id, "text": hit.memory.content.text}
+            if hit.memory.type is not None:
+                candidate["type"] = hit.memory.type.value
+            if hit.memory.source is not None:
+                candidate["source"] = hit.memory.source.value
+            fitted = _fit_reference(rendered, candidate, max_chars)
+            if fitted is not None:
+                rendered.append(fitted)
         return NativeRecallResult(
             _REFERENCE + _json(rendered) if rendered else "", result.memories, result.request_id
         )
@@ -539,15 +550,10 @@ class MemorySession:
             if memory.id in seen or len(selected) >= max_results:
                 continue
             seen.add(memory.id)
-            text = memory.text[:max_chars]
-            while text:
-                candidate = {"id": memory.id, "text": text}
-                size = len(_REFERENCE + _json([*rendered, candidate]))
-                if size <= max_chars:
-                    rendered.append(candidate)
-                    selected.append(RecalledMemory(memory.id, text, memory.source_event_ids))
-                    break
-                text = text[: max(0, len(text) - (size - max_chars))]
+            fitted = _fit_reference(rendered, {"id": memory.id, "text": memory.text}, max_chars)
+            if fitted is not None:
+                rendered.append(fitted)
+                selected.append(RecalledMemory(memory.id, fitted["text"], memory.source_event_ids))
         context = _REFERENCE + _json(rendered) if rendered else ""
         return RecallResult(context, tuple(selected))
 
