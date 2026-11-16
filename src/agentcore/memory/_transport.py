@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, NoReturn, Protocol, TypeGuard
 from urllib.parse import quote
 
+import anyio
 from alibabacloud_agentcore20260804.client import Client
 from alibabacloud_tea_openapi import models as openapi_models
 from alibabacloud_tea_openapi import utils_models as openapi_utils
@@ -19,6 +20,7 @@ from agentcore.auth.resource_sts import HIGH_CODE_SDK_PURPOSE, ResourceCredentia
 from agentcore.controlplane.client import _normalize_endpoint
 from agentcore.errors import (
     AddMemoriesOutcomeUnknownError,
+    CreateEventsOutcomeUnknownError,
     MemoryAPIError,
     MemoryContractError,
     ResourceNotConfiguredError,
@@ -76,10 +78,12 @@ class _MemoryTransport:
         runtime_provider: _RuntimeProvider,
         *,
         client_factory: _ClientFactory | None = None,
+        purpose: str = HIGH_CODE_SDK_PURPOSE,
     ) -> None:
         self._memory_store_name = memory_store_name
         self._runtime_provider = runtime_provider
         self._client_factory = client_factory or self._new_client
+        self._purpose = purpose
 
     async def add_memories(
         self,
@@ -372,6 +376,7 @@ class _MemoryTransport:
         query: Mapping[str, Any] | None = None,
         add: bool = False,
         memory_id: str | None = None,
+        on_dispatch: Callable[[], None] | None = None,
     ) -> Any:
         runtime, client = await self._request_client()
         params = openapi_utils.Params(
@@ -398,6 +403,8 @@ class _MemoryTransport:
                 else None
             ),
         )
+        if on_dispatch is not None:
+            on_dispatch()
         return await self._invoke(
             operation,
             lambda: client.call_api_async(params, request, _runtime_options(add=add)),
@@ -411,7 +418,7 @@ class _MemoryTransport:
         if runtime.access_key_credential is not None:
             credential = runtime.access_key_credential
         elif runtime.resource_sts is not None:
-            credential = await runtime.resource_sts.get(HIGH_CODE_SDK_PURPOSE)
+            credential = await runtime.resource_sts.get(self._purpose)
         else:
             raise ResourceNotConfiguredError(
                 "AgentCore Memory data-plane credentials are not configured"
@@ -431,11 +438,15 @@ class _MemoryTransport:
         failure_type: str | None = None
         try:
             response = await call()
+        except anyio.get_cancelled_exc_class() as exc:
+            if operation == "CreateEvents":
+                exc.__dict__.update(operation=operation, outcome_unknown=True)
+            raise
         except Exception as exc:
             details = _exception_details(exc)
             failure_type = type(exc).__name__
             if add and (details.http_status_code is None or details.http_status_code >= 500):
-                failure = AddMemoriesOutcomeUnknownError(
+                failure = _unknown_error_type(operation)(
                     operation,
                     service_code=details.service_code,
                     http_status_code=details.http_status_code,
@@ -500,7 +511,7 @@ class _MemoryTransport:
         memory_id: str | None,
     ) -> NoReturn:
         if add and details.http_status_code is not None and details.http_status_code >= 500:
-            error: MemoryAPIError = AddMemoriesOutcomeUnknownError(
+            error: MemoryAPIError = _unknown_error_type(operation)(
                 operation,
                 service_code=details.service_code,
                 http_status_code=details.http_status_code,
@@ -529,7 +540,7 @@ class _MemoryTransport:
         details = details or _ErrorDetails()
         if add:
             self._invalid_response(operation, detail, details, memory_id)
-        self._contract(operation, detail, memory_id)
+        self._contract(operation, detail, memory_id, request_id=details.request_id)
 
     def _invalid_response(
         self,
@@ -538,7 +549,7 @@ class _MemoryTransport:
         details: _ErrorDetails,
         memory_id: str | None = None,
     ) -> NoReturn:
-        error = AddMemoriesOutcomeUnknownError(
+        error = _unknown_error_type(operation)(
             operation,
             service_code=details.service_code,
             http_status_code=details.http_status_code,
@@ -553,8 +564,9 @@ class _MemoryTransport:
         operation: str,
         detail: str,
         memory_id: str | None = None,
+        *, request_id: str | None = None,
     ) -> NoReturn:
-        error = MemoryContractError(operation, detail)
+        error = MemoryContractError(operation, detail, request_id=request_id)
         self._log_failure(error, memory_id=memory_id, exception_type="InvalidResponse")
         raise error
 
@@ -596,6 +608,10 @@ class _MemoryTransport:
                 _field(scope_value, "user_id"),
                 operation,
                 f"{path}.scope.user_id",
+                memory_id_for_log,
+            ),
+            team_id=self._optional_string(
+                _field(scope_value, "team_id"), operation, f"{path}.scope.team_id",
                 memory_id_for_log,
             ),
         )
@@ -799,7 +815,15 @@ def _scope_body(scope: MemoryScope | None) -> dict[str, Any] | None:
     if scope is None:
         return None
     return _without_none(
-        {"agentId": scope.agent_id, "sessionId": scope.session_id, "userId": scope.user_id}
+        {"agentId": scope.agent_id, "sessionId": scope.session_id, "userId": scope.user_id,
+         "teamId": scope.team_id}
+    )
+
+
+def _unknown_error_type(operation: str) -> type[MemoryAPIError]:
+    return (
+        CreateEventsOutcomeUnknownError if operation == "CreateEvents"
+        else AddMemoriesOutcomeUnknownError
     )
 
 

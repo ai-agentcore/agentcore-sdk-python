@@ -318,6 +318,7 @@ def _optional_scope(value: MemoryScope | None) -> MemoryScope | None:
     _optional_scope_string(value.user_id, "scope.user_id")
     _optional_scope_string(value.agent_id, "scope.agent_id")
     _optional_scope_string(value.session_id, "scope.session_id")
+    _optional_scope_string(value.team_id, "scope.team_id")
     return value
 
 

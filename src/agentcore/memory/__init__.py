@@ -2,11 +2,25 @@
 
 from agentcore.errors import (
     AddMemoriesOutcomeUnknownError,
+    CreateEventsOutcomeUnknownError,
     MemoryAPIError,
     MemoryContractError,
     MemoryValidationError,
 )
 from agentcore.memory.client import AsyncMemoryStore
+from agentcore.memory.context_client import AsyncContextMemoryClient, ContextMemoryClient
+from agentcore.memory.context_models import (
+    ContextEvent,
+    ContextMemory,
+    ContextMemorySearchHit,
+    ContextMemorySearchResult,
+    CreateEventsResult,
+    EventPage,
+    EventReceipt,
+    MemorySource,
+    MemoryType,
+    SourceEventType,
+)
 from agentcore.memory.models import (
     AddMemoriesResult,
     AddMemoriesSubmission,
@@ -24,6 +38,19 @@ from agentcore.memory.models import (
 )
 
 __all__ = [
+    "AsyncContextMemoryClient",
+    "ContextMemoryClient",
+    "ContextEvent",
+    "ContextMemory",
+    "ContextMemorySearchHit",
+    "ContextMemorySearchResult",
+    "CreateEventsResult",
+    "CreateEventsOutcomeUnknownError",
+    "EventPage",
+    "EventReceipt",
+    "MemorySource",
+    "MemoryType",
+    "SourceEventType",
     "AddMemoriesResult",
     "AddMemoriesSubmission",
     "AddMemoriesOutcomeUnknownError",

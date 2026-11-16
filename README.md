@@ -12,6 +12,8 @@
 | 在部署时选择模型、模版、MCP 和 Skill | [环境变量配置](#通过环境变量选择资源) |
 | 使用自己的模型、MCP 或本地 Skill | [自定义资源](#使用自定义资源) |
 | 为 Agent 添加长期记忆 | [Memory](#使用-memory) |
+| 原生 Context 事件与完整记忆检索 | [Context Memory](#使用原生-context-memory) |
+| 为自有 harness 显式采集事件和召回 | [可选 Memory 插件](packages/memory-plugin/README.md) |
 | 配置 MCP 凭证与固定 Header | [凭证与 Header](#凭证与-mcp-header) |
 | 接入已有 Agent 框架 | [框架集成](#框架集成) |
 | 将 Agent 发布为 HTTP 服务 | [服务协议](#提供-agent-服务) |
@@ -226,6 +228,37 @@ if __name__ == "__main__":
 示例会写入真实数据，建议使用测试记忆空间。新写入的记忆可能需要一定时间才能检索到，首次查询可能为空。
 
 完整代码见 [Memory 基础示例](examples/memory.py)；让 Agent 自动检索并使用记忆，参见 [六框架 Memory 示例](examples/memory_frameworks/README.md)。
+
+## 使用原生 Context Memory
+
+`AsyncAgentCore.context_memory(name, endpoint=None)` 绑定已有 MemoryStore，提供 `create_events`、`list_events` 和 `search_memories`。同步 `AgentCore.context_memory` 使用同一 portal，方法参数相同。
+
+```python
+from agentcore import AsyncAgentCore
+from agentcore.memory import MemoryScope, MemoryType
+
+async def recall(query, trusted_agent, trusted_team):
+    async with AsyncAgentCore.auto() as core:
+        memory = core.context_memory("existing-store")
+        result = await memory.search_memories(
+            query,
+            scope=MemoryScope(agent_id=trusted_agent, team_id=trusted_team),
+            types=[MemoryType.SKILL, MemoryType.USER_PROFILE],
+            top_k=20,
+            timeout=2.0,
+        )
+        return result.memories
+```
+
+此入口只请求 `purpose=context` 凭据，沿用 SDK 的 Agent SA 与 STS 缓存。endpoint 优先使用显式参数，其次是可信 Runtime 环境投影或进程环境的 `AGENTCORE_MEMORY_ENDPOINT`，最后使用区域 `agentcore.{region}.aliyuncs.com`。它不继承控制面 endpoint，不自动切换地址重发。已有 `memory_store` 保持 `highcode_sdk` 行为。独立调用方可用公开 `AsyncContextMemoryClient.from_credentials` 注入一个 `ResourceSTSProvider` 或 `AccessKeyCredential`，调用方负责其生命周期；独立入口使用显式 endpoint、进程环境、区域地址的同一优先级。
+
+`MemoryScope` 的 user、team、agent、session 四维彼此独立可选。空字符串和保留通配值非法。搜索仅校验实际传入的 scope 条件。`types` 接受 semantic、skill、user_profile、session_summary，省略或空列表表示不限制类型，不能传 auto。`top_k` 为 1 至 200，省略时使用服务默认值。结果保留 score、similarity、type、source、valid、source_event_ids、version 和时间，服务未返回的可选字段保持 `None`。
+
+`ContextEvent.from_source(type, timestamp, data)` 将五类来源事件转为部署支持的 message envelope，opaque 值为规范 JSON 字符串。仅在服务明确支持 typed 事件时使用 `ContextEvent.typed`。`create_events` 返回逐输入的 `input_index`、`status`、`event_id` 及 `request_id`。只有 `STORED` 且 event ID 合法表示已存储，不代表记忆提取完成。缺失、重复或越界回执会抛出 `CreateEventsOutcomeUnknownError`，不会生成假的回执。
+
+写请求不自动重试。派发后超时、连接断开、5xx 或回执损坏均可能已写成功，错误携带 `outcome_unknown=True`。派发后的异步取消保留取消异常类型，并附加 `operation` 和 `outcome_unknown`，不能证明云端操作已取消。认证或校验失败发生在派发前，显式拒绝也不表示未知写入。`timeout` 以秒计，包含凭据获取与请求执行。读取失败与合法空结果分开，错误保留可用的 request ID。
+
+`list_events` 保留不可变的服务事件 envelope 与 `next_token`，不假定固定事件行结构。宿主使用分页结果对账，继续拥有 source ID、持久 outbox、重试决策及多库编排。参见 [原生 CLI 示例](examples/context_memory.py) 与 [可选插件](packages/memory-plugin/README.md)。本次未进行真实云端验收。
 
 ## 框架集成
 

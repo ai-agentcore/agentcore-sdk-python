@@ -65,6 +65,7 @@ class MemoryValidationError(AgentCoreError):
 
 class MemoryAPIError(AgentCoreError):
     code = "MEMORY_API_FAILED"
+    outcome_unknown = False
 
     def __init__(
         self,
@@ -103,14 +104,24 @@ class MemoryAPIError(AgentCoreError):
 class MemoryContractError(AgentCoreError):
     code = "MEMORY_RESPONSE_INVALID"
 
-    def __init__(self, operation: str, detail: str) -> None:
+    def __init__(self, operation: str, detail: str, *, request_id: str | None = None) -> None:
         self.operation = operation
         self.detail = detail
+        self.request_id = request_id
         super().__init__(f"AgentCore Memory {operation} returned an invalid response: {detail}")
 
 
 class AddMemoriesOutcomeUnknownError(MemoryAPIError):
     code = "ADD_MEMORIES_OUTCOME_UNKNOWN"
+    outcome_unknown = True
 
     def _safe_message(self, operation: str) -> str:
         return "AgentCore Memory AddMemories outcome is unknown; the write may have succeeded"
+
+
+class CreateEventsOutcomeUnknownError(MemoryAPIError):
+    code = "CREATE_EVENTS_OUTCOME_UNKNOWN"
+    outcome_unknown = True
+
+    def _safe_message(self, operation: str) -> str:
+        return "AgentCore Memory CreateEvents outcome is unknown; the write may have succeeded"
