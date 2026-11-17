@@ -13,7 +13,7 @@
 | 使用自己的模型、MCP 或本地 Skill | [自定义资源](#使用自定义资源) |
 | 为 Agent 添加长期记忆 | [Memory](#使用-memory) |
 | 原生 Context 事件与完整记忆检索 | [Context Memory](#使用原生-context-memory) |
-| 为自有 harness 显式采集事件和召回 | [可选 Memory 插件](packages/memory-plugin/README.md) |
+| 为自有 harness 显式采集事件和召回 | [原生 Context Memory 示例](examples/context_memory.py) |
 | 配置 MCP 凭证与固定 Header | [凭证与 Header](#凭证与-mcp-header) |
 | 接入已有 Agent 框架 | [框架集成](#框架集成) |
 | 将 Agent 发布为 HTTP 服务 | [服务协议](#提供-agent-服务) |
@@ -259,7 +259,7 @@ async def recall(query, trusted_agent, trusted_team):
 
 写请求不自动重试。派发后超时、连接断开、5xx 或回执损坏均可能已写成功，错误携带 `outcome_unknown=True`。派发后的异步取消保留取消异常类型，并附加 `operation` 和 `outcome_unknown`，不能证明云端操作已取消。认证或校验失败发生在派发前，显式拒绝也不表示未知写入。`timeout` 以秒计，包含凭据获取与请求执行。读取失败与合法空结果分开，错误保留可用的 request ID。
 
-`list_events` 保留不可变的服务事件 envelope 与 `next_token`，不假定固定事件行结构。宿主使用分页结果对账，继续拥有 source ID、持久 outbox、重试决策及多库编排。参见 [原生 CLI 示例](examples/context_memory.py) 与 [可选插件](packages/memory-plugin/README.md)。本次未进行真实云端验收。
+`list_events` 保留不可变的服务事件 envelope 与 `next_token`，不假定固定事件行结构。宿主使用分页结果对账，继续拥有 source ID、持久 outbox、重试决策及多库编排。参见 [原生 CLI 示例](examples/context_memory.py)。本次未进行真实云端验收。
 
 ## 框架集成
 
