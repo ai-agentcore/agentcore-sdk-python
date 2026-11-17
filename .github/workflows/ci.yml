@@ -52,13 +52,12 @@ jobs:
           cache-dependency-path: |
             pyproject.toml
             packages/collaboration/pyproject.toml
-            packages/memory-plugin/pyproject.toml
       - name: Install test dependencies
         env:
           FRAMEWORK_EXTRA: ${{ matrix.extra }}
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev,mcp,server,credentials,langchain,langgraph${FRAMEWORK_EXTRA}]" -e ./packages/collaboration -e ./packages/memory-plugin
+          python -m pip install -e ".[dev,mcp,server,credentials,langchain,langgraph${FRAMEWORK_EXTRA}]" -e ./packages/collaboration
           python -m pip check
       - name: Unit, local protocol and framework tests
         run: python -m pytest tests/unit tests/integration tests/optional -q --tb=short
