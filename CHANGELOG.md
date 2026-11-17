@@ -1,5 +1,12 @@
 # Release notes
 
+## SDK 0.1.8 — 2026-11-17
+
+- LangChain、LangGraph、AgentScope、Google ADK、PydanticAI 和 CrewAI 的 Memory 适配器支持直接使用 Context Memory 客户端检索记忆和写入本轮对话事件，保留原有 MemoryStore 用法。
+- 检查逐事件写入回执，并按接口上限分批提交；Google ADK 导入保留原始事件时间戳。
+- 修复旧 Memory 接口的部分成功结果与多个任务 ID 处理，避免丢失已返回的结果。
+- 更新框架用法示例并补充回归测试。
+
 ## SDK 0.1.6 — 2026-11-03
 
 - 支持通过环境变量选择默认模型和 AgentSpec，以及批量加载多个 MCP 和带独立版本的 Skill。
