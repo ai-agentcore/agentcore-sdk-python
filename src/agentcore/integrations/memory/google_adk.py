@@ -11,13 +11,20 @@ from google.adk.memory.memory_entry import MemoryEntry
 from google.adk.sessions import Session
 from google.genai import types
 
-from agentcore.integrations.memory._common import validate_scope, validate_top_k
-from agentcore.memory import AsyncMemoryStore, MemoryMessage, MemoryScope, MemoryValidationError
+from agentcore.integrations.memory._common import record_events, validate_scope, validate_top_k
+from agentcore.memory import (
+    AsyncContextMemoryClient,
+    AsyncMemoryStore,
+    ContextEvent,
+    MemoryMessage,
+    MemoryScope,
+    MemoryValidationError,
+)
 
 logger = logging.getLogger(__name__)
 
 
-def _messages(events: Sequence[Event]) -> list[MemoryMessage]:
+def _text_messages(events: Sequence[Event]) -> list[tuple[Event, MemoryMessage]]:
     result = []
     for event in events:
         content = event.content
@@ -33,7 +40,7 @@ def _messages(events: Sequence[Event]) -> list[MemoryMessage]:
             part.text for part in content.parts or [] if part.text and not part.thought
         )
         if text.strip():
-            result.append(MemoryMessage(role, text))
+            result.append((event, MemoryMessage(role, text)))
     return result
 
 
@@ -42,12 +49,12 @@ class AgentCoreMemoryService(BaseMemoryService):  # type: ignore[misc,unused-ign
 
     def __init__(
         self,
-        store: AsyncMemoryStore,
+        store: AsyncMemoryStore | AsyncContextMemoryClient,
         *,
         partition_resolver: Callable[[str, str], str],
         top_k: int = 5,
     ) -> None:
-        validate_top_k(top_k)
+        validate_top_k(top_k, store)
         self._store = store
         self._partition = partition_resolver
         self._top_k = top_k
@@ -105,10 +112,31 @@ class AgentCoreMemoryService(BaseMemoryService):  # type: ignore[misc,unused-ign
                         "custom_metadata requires non-empty string keys and string values"
                     )
                 metadata[key] = value
-        messages = _messages(events)
+        if isinstance(self._store, AsyncContextMemoryClient):
+            if custom_metadata is not None:
+                raise MemoryValidationError(
+                    "Context Memory event writes do not support custom_metadata"
+                )
+            await record_events(
+                self._store,
+                [
+                    ContextEvent.message(
+                        int(event.timestamp * 1000),
+                        message.role,
+                        [{"type": "text", "text": message.content}],
+                    )
+                    for event, message in _text_messages(events)
+                ],
+                scope,
+            )
+            return
+        messages = [message for _, message in _text_messages(events)]
         if messages:
             result = await self._store.add_memories(
-                scope=scope, messages=messages, metadata=metadata, sync=False,
+                scope=scope,
+                messages=messages,
+                metadata=metadata,
+                sync=False,
             )
             logger.info(
                 "agentcore.memory.adapter.write.submitted store=%s task_id=%s",

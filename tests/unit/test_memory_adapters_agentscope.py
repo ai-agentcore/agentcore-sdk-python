@@ -186,18 +186,28 @@ async def test_agentscope_cancellation_does_not_write():
 
 
 @pytest.mark.asyncio
-async def test_documented_agentscope_example():
+@pytest.mark.parametrize("native", [False, True])
+async def test_documented_agentscope_example(native, context_memory_client):
     module = runpy.run_path(
         str(Path(__file__).parents[2] / "examples/memory_frameworks/agentscope_agent.py")
     )
-    store = make_store()
+    store = context_memory_client if native else make_store()
     model, http = make_model(lambda request: response())
     try:
         result = await module["run"](store, model, partition="a", session_id="s")
         assert result.get_text_content() == "answer"
-        assert store.add_memories.await_count == 1
-        assert store.add_memories.await_args.kwargs["scope"] == MemoryScope(
-            agent_id="a", session_id="s"
-        )
+        if native:
+            store.create_events.assert_awaited_once()
+            assert store.create_events.await_args.kwargs["scope"] == MemoryScope(
+                agent_id="a", session_id="s"
+            )
+            events = store.create_events.await_args.args[0]
+            assert [e.to_dict()["data"]["role"] for e in events] == ["user", "assistant"]
+            assert events[-1].to_dict()["data"]["content"] == [{"type": "text", "text": "answer"}]
+        else:
+            assert store.add_memories.await_count == 1
+            assert store.add_memories.await_args.kwargs["scope"] == MemoryScope(
+                agent_id="a", session_id="s"
+            )
     finally:
         await http.aclose()

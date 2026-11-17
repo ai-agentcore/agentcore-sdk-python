@@ -21,19 +21,19 @@ from agentcore.integrations.memory._common import (
     reference_text,
     validate_top_k,
 )
-from agentcore.memory import AsyncMemoryStore, MemoryMessage
+from agentcore.memory import AsyncContextMemoryClient, AsyncMemoryStore, MemoryMessage
 
 
 class AgentCoreMemoryMiddleware(MiddlewareBase):  # type: ignore[misc,unused-ignore]
     def __init__(
         self,
-        store: AsyncMemoryStore,
+        store: AsyncMemoryStore | AsyncContextMemoryClient,
         *,
         scope_resolver: Callable[[Agent], MemoryScopes],
         write_back: bool = False,
         top_k: int = 5,
     ) -> None:
-        validate_top_k(top_k)
+        validate_top_k(top_k, store)
         self._store = store
         self._scopes = scope_resolver
         self._write_back = write_back

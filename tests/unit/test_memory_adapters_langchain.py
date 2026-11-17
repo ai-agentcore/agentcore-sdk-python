@@ -74,11 +74,13 @@ async def test_user_only_scope_recall_and_write_back():
     scope = MemoryScope(user_id="alice")
     agent = create_agent(
         TestModel(responses=[AIMessage(content="answer")]),
-        middleware=[AgentCoreMemoryMiddleware(
-            store,
-            scope_resolver=lambda context: MemoryScopes(read=scope, write=scope),
-            write_back=True,
-        )],
+        middleware=[
+            AgentCoreMemoryMiddleware(
+                store,
+                scope_resolver=lambda context: MemoryScopes(read=scope, write=scope),
+                write_back=True,
+            )
+        ],
     )
     result = await agent.ainvoke({"messages": [HumanMessage("question")]})
     assert result["messages"][-1].content == "answer"
@@ -288,11 +290,12 @@ async def test_cancelled_tool_does_not_write():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("example", ["langchain_agent", "langgraph_agent"])
-async def test_documented_examples_use_real_frameworks(example):
+@pytest.mark.parametrize("native", [False, True])
+async def test_documented_examples_use_real_frameworks(example, native, context_memory_client):
     module = runpy.run_path(
         str(Path(__file__).parents[2] / "examples" / "memory_frameworks" / f"{example}.py")
     )
-    store = make_store()
+    store = context_memory_client if native else make_store()
     responses = [AIMessage(content="answer")]
     if example == "langgraph_agent":
         responses.insert(
@@ -316,7 +319,16 @@ async def test_documented_examples_use_real_frameworks(example):
     )
     assert result["messages"][-1].content == "answer"
     assert store.search_memories.await_count == 1
-    assert store.add_memories.await_count == 1
-    assert store.add_memories.await_args.kwargs["scope"] == MemoryScope(
-        agent_id="a", session_id="s"
-    )
+    if native:
+        store.create_events.assert_awaited_once()
+        assert store.create_events.await_args.kwargs["scope"] == MemoryScope(
+            agent_id="a", session_id="s"
+        )
+        events = store.create_events.await_args.args[0]
+        assert [e.to_dict()["data"]["role"] for e in events] == ["user", "assistant"]
+        assert events[-1].to_dict()["data"]["content"] == [{"type": "text", "text": "answer"}]
+    else:
+        assert store.add_memories.await_count == 1
+        assert store.add_memories.await_args.kwargs["scope"] == MemoryScope(
+            agent_id="a", session_id="s"
+        )

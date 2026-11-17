@@ -2,7 +2,7 @@
 
 为 Agent 添加长期记忆：在回答前检索相关信息，在完成对话后保存需要记住的内容。
 
-示例使用已有的 MemoryStore 和框架模型对象。运行前请在 AgentCore 中创建记忆空间并授予应用访问权限。
+示例使用 `core.context_memory(name)` 获取的记忆客户端和框架模型对象。运行前请在 AgentCore 中创建记忆空间并授予应用访问权限。
 
 ## 选择框架
 
@@ -36,7 +36,7 @@ chat = model("test-mc", model_name="qwen3.8-max")
 async def main():
     async with AsyncAgentCore.auto() as core:
         result = await run(
-            core.memory_store("test-memory"),
+            core.context_memory("test-memory"),
             chat,
             partition="my-business-partition",
             session_id="session-1",
@@ -61,7 +61,7 @@ await run(store, framework_model, partition="...", session_id="...")
 - `session_id` 标识当前会话；示例在分区内检索，写入时附带当前会话。
 - 这些值由应用的可信业务上下文提供，不应交给模型生成，也不能替代访问权限控制。
 
-使用 `MemoryScopes` 的适配器也支持独立的 `user_id`、`agent_id` 或 `session_id`，
+使用 `MemoryScopes` 的适配器也支持独立的 `user_id`、`team_id`、`agent_id` 或 `session_id`，
 读写范围均须显式指定至少一个字段；写入不再强制要求会话 ID。例如按用户读写：
 
 ```python
@@ -90,10 +90,8 @@ Memory 提供长期记忆，不替代框架的会话历史或检查点存储。
 
 需要业务审批后再保存时，关闭自动写回并由应用显式写入。记忆写入后可能需要一定时间才能检索到。
 
-以上六种框架的写回均使用异步提交：等待服务端受理，不等待记忆提取完成，
-也不会在后台轮询。提交成功时日志记录 `task_id`；如需跟踪后续提取结果，
-可调用 `store.get_memory_task(task_id)`。提交阶段仍按各适配器原有的错误处理方式处理；
-任务受理后的提取失败不会作为本轮 Agent 执行错误返回。
+传入 `core.context_memory(name)` 时，适配器检索已有记忆，并将本轮用户输入和最终文本答案保存为事件。写入完成表示事件已保存，不代表已经提取出长期记忆；适配器不会等待或轮询提取结果。默认不保存工具调用、工具结果或模型思考过程。
 
-如果业务必须等待提取完成，请关闭自动写回，在应用中显式调用
-`await store.add_memories(..., sync=True)`，再读取返回的 `memory_ids`。
+Google ADK 的 `add_events_to_memory` 保存传入事件中的用户和最终助手文本；`add_session_to_memory` 保存整个传入会话，请避免对同一历史反复提交。此入口不支持 `custom_metadata`，需要附加数据时请使用基础客户端显式构造事件。
+
+已有应用可以继续传入 `core.memory_store(name)`，此时仍以 `add_memories(sync=False)` 提交，任务进度通过 `get_memory_task` 查询。两个入口不会互相自动切换。
