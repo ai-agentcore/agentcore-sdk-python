@@ -21,7 +21,11 @@ from agentcore.errors import (
 if TYPE_CHECKING:
     from agentcore.controlplane.client import AgentCoreControlPlane, CredentialMetadata
 
-_WAT_ERROR_CODES = {"WORKLOAD_ACCESS_TOKEN_EXPIRED", "WORKLOAD_ACCESS_TOKEN_INVALID"}
+_WAT_ERROR_CODES = {
+    "WORKLOAD_ACCESS_TOKEN_EXPIRED",
+    "WORKLOAD_ACCESS_TOKEN_INVALID",
+    "INVALIDPARAMETER.WORKLOADACCESSTOKEN",
+}
 logger = logging.getLogger(__name__)
 
 

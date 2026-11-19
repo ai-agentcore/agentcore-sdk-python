@@ -1,8 +1,12 @@
-"""Exchange the rotating Agent SA token for an opaque WAT."""
+"""Exchange the rotating Agent SA token for a cached WAT."""
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
+import re
+from time import time
 from typing import Any
 
 import anyio
@@ -17,7 +21,25 @@ from agentcore.auth.agent_sa_token import (
 from agentcore.errors import AuthenticationError, WorkloadIdentityNotConfiguredError
 
 _TOKEN_PATH = "/api/v1/workload/token"
+_REFRESH_BEFORE_SECONDS = 30
 logger = logging.getLogger(__name__)
+
+
+def _token_expiry(token: str) -> int | None:
+    # The unverified claim is a cache hint only.
+    parts = token.split(".", 3)
+    if len(parts) != 3 or not all(parts) or not re.fullmatch(r"[A-Za-z0-9_-]+", parts[1]):
+        return None
+    payload = parts[1]
+    try:
+        decoded = base64.b64decode(
+            payload + "=" * (-len(payload) % 4), altchars=b"-_", validate=True
+        )
+        claims = json.loads(decoded.decode("utf-8"))
+    except (ValueError, RecursionError):
+        return None
+    exp = claims.get("exp") if isinstance(claims, dict) else None
+    return exp if type(exp) is int and exp > 0 else None
 
 
 class WorkloadAccessTokenProvider:
@@ -38,23 +60,34 @@ class WorkloadAccessTokenProvider:
         self._owns_http = http_client is None
         self._max_attempts = max(1, max_attempts)
         self._token: str | None = None
+        self._expires_at: int | None = None
         self._lock = anyio.Lock()
 
     async def get(self) -> str:
-        if self._token is not None:
-            logger.debug("agentcore.wat.cache.hit")
-            return self._token
+        token = self._cached_token()
+        if token is not None:
+            return token
         async with self._lock:
-            if self._token is None:
-                self._token = await self._exchange()
-            else:
-                logger.debug("agentcore.wat.cache.hit")
-            return self._token
+            token = self._cached_token()
+            if token is None:
+                token = await self._exchange()
+                self._expires_at = _token_expiry(token)
+                self._token = token
+            return token
+
+    def _cached_token(self) -> str | None:
+        if self._token is None:
+            return None
+        if self._expires_at is not None and self._expires_at <= time() + _REFRESH_BEFORE_SECONDS:
+            return None
+        logger.debug("agentcore.wat.cache.hit")
+        return self._token
 
     async def invalidate(self, token: str | None = None) -> None:
         async with self._lock:
             if token is None or self._token == token:
                 self._token = None
+                self._expires_at = None
                 logger.info("agentcore.wat.cache.invalidated")
 
     async def aclose(self) -> None:

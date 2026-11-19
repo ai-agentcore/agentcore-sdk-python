@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -158,6 +160,77 @@ async def test_workload_token_single_flight(tmp_path: Path) -> None:
 
     assert values == ["wat"] * 10
     assert calls == 1
+
+
+def _wat_with_claims(claims: dict[str, object]) -> str:
+    payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
+    return f"e30.{payload}.c2ln"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("seconds_elapsed", [30, 61])
+async def test_workload_token_refreshes_at_expiry_window_with_one_exchange(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, seconds_elapsed: int
+) -> None:
+    token_path = tmp_path / "token"
+    token_path.write_text("sa-token", encoding="utf-8")
+    now = 1_800_000_000
+    monkeypatch.setattr("agentcore.auth.workload_access_token.time", lambda: now)
+    original = _wat_with_claims({"exp": now + 60})
+    fresh = _wat_with_claims({"exp": now + 3600})
+    calls = 0
+
+    async def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0)
+        return httpx.Response(200, json={"workloadAccessToken": original if calls == 1 else fresh})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        provider = WorkloadAccessTokenProvider(
+            "https://controller.example.com", AgentSATokenProvider(token_path), http_client=http
+        )
+        assert await provider.get() == original
+        now += 29
+        assert await provider.get() == original
+        now += seconds_elapsed - 29
+        assert await asyncio.gather(*(provider.get() for _ in range(10))) == [fresh] * 10
+        await provider.invalidate(original)
+        assert await provider.get() == fresh
+
+    assert calls == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "token",
+    [
+        "opaque",
+        "e30.invalid!.c2ln",
+        _wat_with_claims({}),
+        _wat_with_claims({"exp": "1"}),
+        _wat_with_claims({"exp": True}),
+        _wat_with_claims({"exp": 1.5}),
+    ],
+)
+async def test_workload_token_with_no_usable_expiry_keeps_existing_cache(
+    tmp_path: Path, token: str
+) -> None:
+    token_path = tmp_path / "token"
+    token_path.write_text("sa-token", encoding="utf-8")
+    tokens = iter((token, "fresh"))
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"workloadAccessToken": next(tokens)})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        provider = WorkloadAccessTokenProvider(
+            "https://controller.example.com", AgentSATokenProvider(token_path), http_client=http
+        )
+        assert await provider.get() == token
+        assert await provider.get() == token
+        await provider.invalidate(token)
+        assert await provider.get() == "fresh"
 
 
 @pytest.mark.asyncio
