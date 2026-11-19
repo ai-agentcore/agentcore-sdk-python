@@ -206,6 +206,15 @@ def test_parse_debug_token_uses_external_agent_envelope_without_secret_repr() ->
     assert "bootstrap-jwt" not in repr(token)
 
 
+def test_high_code_debug_token_without_matrix_url() -> None:
+    payload = json.loads(base64.b64decode(_debug_token()))
+    del payload["matrixUrl"]
+    token = parse_debug_token(base64.b64encode(json.dumps(payload).encode()).decode())
+    assert token.matrix_url is None
+    with pytest.raises(ConfigError, match="matrixUrl"):
+        _ = DebugRuntimeSource(token).matrix_url
+
+
 def test_debug_runtime_uses_process_control_plane_endpoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

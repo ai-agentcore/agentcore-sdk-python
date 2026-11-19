@@ -53,7 +53,7 @@ class DebugToken:
     jwt_token: str
     controller_url: str
     model_gateway_url: str
-    matrix_url: str
+    matrix_url: str | None = None
 
     def __repr__(self) -> str:
         return (
@@ -255,6 +255,8 @@ class DebugRuntimeSource:
 
     @property
     def matrix_url(self) -> str:
+        if self._debug_token.matrix_url is None:
+            raise ConfigError("matrixUrl is required for Matrix access")
         return self._debug_token.matrix_url
 
     async def load_teams_config(self) -> bytes | None:
@@ -530,9 +532,9 @@ def parse_debug_token(value: str) -> DebugToken:
                 _required_string(payload, "modelGatewayUrl"),
                 "modelGatewayUrl",
             ),
-            matrix_url=_http_url(
-                _required_string(payload, "matrixUrl"),
-                "matrixUrl",
+            matrix_url=(
+                _http_url(_required_string(payload, "matrixUrl"), "matrixUrl")
+                if "matrixUrl" in payload else None
             ),
         )
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
