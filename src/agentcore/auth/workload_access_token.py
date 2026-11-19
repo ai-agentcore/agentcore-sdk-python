@@ -25,6 +25,10 @@ _REFRESH_BEFORE_SECONDS = 30
 logger = logging.getLogger(__name__)
 
 
+class _WorkloadTokenUnavailable(AuthenticationError):
+    pass
+
+
 def _token_expiry(token: str) -> int | None:
     # The unverified claim is a cache hint only.
     parts = token.split(".", 3)
@@ -61,6 +65,7 @@ class WorkloadAccessTokenProvider:
         self._max_attempts = max(1, max_attempts)
         self._token: str | None = None
         self._expires_at: int | None = None
+        self._refresh_at: int | None = None
         self._lock = anyio.Lock()
 
     async def get(self) -> str:
@@ -70,25 +75,42 @@ class WorkloadAccessTokenProvider:
         async with self._lock:
             token = self._cached_token()
             if token is None:
-                token = await self._exchange()
-                self._expires_at = _token_expiry(token)
+                try:
+                    token = await self._exchange()
+                except _WorkloadTokenUnavailable:
+                    expires_at = self._expires_at
+                    if self._token is None or expires_at is None or expires_at <= time():
+                        raise
+                    self._refresh_at = expires_at
+                    return self._token
+                expires_at = _token_expiry(token)
+                self._expires_at = expires_at
+                self._refresh_at = (
+                    expires_at - _REFRESH_BEFORE_SECONDS if expires_at is not None else None
+                )
                 self._token = token
             return token
 
     def _cached_token(self) -> str | None:
         if self._token is None:
             return None
-        if self._expires_at is not None and self._expires_at <= time() + _REFRESH_BEFORE_SECONDS:
+        if self._refresh_at is not None and self._refresh_at <= time():
             return None
         logger.debug("agentcore.wat.cache.hit")
         return self._token
 
     async def invalidate(self, token: str | None = None) -> None:
+        # Remove a rejected ticket before a pending refresh can fall back to it.
+        self._clear_cached_token(token)
         async with self._lock:
-            if token is None or self._token == token:
-                self._token = None
-                self._expires_at = None
-                logger.info("agentcore.wat.cache.invalidated")
+            self._clear_cached_token(token)
+
+    def _clear_cached_token(self, token: str | None) -> None:
+        if self._token is not None and (token is None or self._token == token):
+            self._token = None
+            self._expires_at = None
+            self._refresh_at = None
+            logger.info("agentcore.wat.cache.invalidated")
 
     async def aclose(self) -> None:
         if self._owns_http:
@@ -164,5 +186,5 @@ class WorkloadAccessTokenProvider:
                 )
                 await anyio.sleep(0.05 * (2**attempt))
         if last_error is not None:
-            raise AuthenticationError("cannot reach the AgentCore Controller") from last_error
-        raise AuthenticationError("Controller workload token service is unavailable")
+            raise _WorkloadTokenUnavailable("cannot reach the AgentCore Controller") from last_error
+        raise _WorkloadTokenUnavailable("Controller workload token service is unavailable")

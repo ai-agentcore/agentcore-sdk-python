@@ -244,4 +244,4 @@ async def test_bound_credential_retries_wat_rejection_only_once() -> None:
         await credentials.get("github")
 
     assert transport.tokens == ["wat-1", "wat-2"]
-    assert wat.invalidated == ["wat-1"]
+    assert wat.invalidated == ["wat-1", "wat-2"]

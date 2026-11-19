@@ -203,6 +203,63 @@ async def test_workload_token_refreshes_at_expiry_window_with_one_exchange(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "failure", ["503", "transport", "401", "expired_during_refresh", "invalidated_during_refresh"]
+)
+async def test_workload_token_falls_back_only_on_transient_failure_with_valid_wat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    token_path = tmp_path / "token"
+    token_path.write_text("sa-token", encoding="utf-8")
+    now = 1_800_000_000
+    expires_at = now + 60
+    original = _wat_with_claims({"exp": expires_at})
+    monkeypatch.setattr("agentcore.auth.workload_access_token.time", lambda: now)
+    calls = 0
+    refresh_started = asyncio.Event()
+    finish_refresh = asyncio.Event()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls, now
+        calls += 1
+        await asyncio.sleep(0)
+        if calls == 1:
+            return httpx.Response(200, json={"workloadAccessToken": original})
+        if failure == "transport":
+            raise httpx.ReadError("connection interrupted", request=request)
+        if failure == "expired_during_refresh":
+            now = expires_at
+        if failure == "invalidated_during_refresh":
+            refresh_started.set()
+            await finish_refresh.wait()
+        return httpx.Response(401 if failure == "401" else 503)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        provider = WorkloadAccessTokenProvider(
+            "https://controller.example.com", AgentSATokenProvider(token_path), http_client=http,
+            max_attempts=1,
+        )
+        assert await provider.get() == original
+        now += 30
+        if failure == "invalidated_during_refresh":
+            refresh = asyncio.create_task(provider.get())
+            await refresh_started.wait()
+            invalidation = asyncio.create_task(provider.invalidate(original))
+            await asyncio.sleep(0)
+            finish_refresh.set()
+            with pytest.raises(AuthenticationError):
+                await refresh
+            await invalidation
+            return
+        if failure in {"503", "transport"}:
+            assert await asyncio.gather(provider.get(), provider.get()) == [original, original]
+            assert calls == 2
+            now = expires_at
+        with pytest.raises(AuthenticationError):
+            await provider.get()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     "token",
     [
         "opaque",

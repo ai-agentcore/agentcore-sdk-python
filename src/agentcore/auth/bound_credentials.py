@@ -155,29 +155,26 @@ class AsyncBoundCredentials:
             credential_name,
         )
         credential = await sts_provider.get(AGENT_IDENTITY_DATA_PURPOSE)
-        wat = await wat_provider.get()
-        try:
-            value = await self._transport.get_api_key(
-                region_id=region_id,
-                credential=credential,
-                provider_name=provider_name,
-                workload_access_token=wat,
-            )
-        except WorkloadAccessTokenRejectedError:
-            logger.warning(
-                "agentcore.credential.resolve.wat_rejected workspace_id=%s "
-                "credential_name=%s retry=true",
-                workspace_id,
-                credential_name,
-            )
-            await wat_provider.invalidate(wat)
+        for attempt in range(2):
             wat = await wat_provider.get()
-            value = await self._transport.get_api_key(
-                region_id=region_id,
-                credential=credential,
-                provider_name=provider_name,
-                workload_access_token=wat,
-            )
+            try:
+                value = await self._transport.get_api_key(
+                    region_id=region_id,
+                    credential=credential,
+                    provider_name=provider_name,
+                    workload_access_token=wat,
+                )
+                break
+            except WorkloadAccessTokenRejectedError:
+                await wat_provider.invalidate(wat)
+                if attempt == 1:
+                    raise
+                logger.warning(
+                    "agentcore.credential.resolve.wat_rejected workspace_id=%s "
+                    "credential_name=%s retry=true",
+                    workspace_id,
+                    credential_name,
+                )
         if not value:
             raise CredentialExchangeError("Agent Identity Data returned an empty API key")
         logger.info(
