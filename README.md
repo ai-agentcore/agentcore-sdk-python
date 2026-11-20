@@ -270,20 +270,16 @@ async def recall(query, trusted_agent, trusted_team):
 
 ## 框架集成
 
-将模型、MCP 和 Skill 接入现有框架，不必重写 Agent 的业务逻辑。
+| 框架 | 使用指南 | 完整示例 |
+| --- | --- | --- |
+| LangChain | [LangChain / LangGraph](docs/langchain.md) | [Agent](examples/frameworks/langchain_agent.py) |
+| LangGraph | [LangChain / LangGraph](docs/langchain.md#langgraph) | [模型与工具循环](examples/frameworks/langgraph_agent.py) |
+| AgentScope 2.x | [AgentScope](docs/agentscope.md) | [Agent](examples/frameworks/agentscope_agent.py) |
+| Google ADK | [Google ADK](docs/google-adk.md) | [Agent 与 Runner](examples/frameworks/google_adk_agent.py) |
+| PydanticAI | [PydanticAI](docs/pydantic-ai.md) | [Agent](examples/frameworks/pydantic_ai_agent.py) |
+| CrewAI | [CrewAI](docs/crewai.md) | [Agent、Task 与 Crew](examples/frameworks/crewai_agent.py) |
 
-| 框架 | 示例 |
-| --- | --- |
-| LangChain | [Agent](examples/frameworks/langchain_agent.py) |
-| LangGraph | [模型与工具循环](examples/frameworks/langgraph_agent.py) |
-| AgentScope 2.x | [Agent](examples/frameworks/agentscope_agent.py) |
-| Google ADK | [Agent 与 Runner](examples/frameworks/google_adk_agent.py) |
-| PydanticAI | [Agent](examples/frameworks/pydantic_ai_agent.py) |
-| CrewAI | [Agent、Task 与 Crew](examples/frameworks/crewai_agent.py) |
-
-需要长期记忆时，参见 [Memory 框架示例](examples/memory_frameworks/README.md)。 可直接将 `core.context_memory("my-memory-store")` 传给适配器，按需开启本轮对话写回；已有 `core.memory_store(...)` 用法继续支持。
-
-需要展示工具执行过程时，使用 [框架执行事件转换器](examples/frameworks/execution-events.md)，保留工具调用、结果与消息边界。
+需要接入长期记忆或展示工具执行过程时，参见 [Memory 框架示例](examples/memory_frameworks/README.md)和[框架执行事件](examples/frameworks/execution-events.md)。
 
 ## 提供 Agent 服务
 
