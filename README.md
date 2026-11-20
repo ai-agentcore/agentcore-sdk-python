@@ -74,7 +74,7 @@ asyncio.run(main())
 
 1. 安装 Python SDK `0.1.10` 或更高版本。
 2. 从 AgentCore 获取该 Agent 的调试 Token，将其设为本地进程的 `AGENTCORE_DEBUG_TOKEN` 环境变量。
-3. 用 `AsyncAgentCore.auto()` 或 `AgentCore.auto()` 初始化 SDK，按上方示例调用该 Agent 已获授权的模型或 MCP。
+3. 启动本地程序，调用该 Agent 已获授权的模型或 MCP。初始化和调用方式可参考上方示例。
 
 ### 凭证与 MCP Header
 
