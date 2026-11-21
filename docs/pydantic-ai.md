@@ -4,7 +4,7 @@
 python -m pip install "alibabacloud-agentcore-sdk[mcp,pydantic-ai]"
 ```
 
-按[云端资源准备](../examples/README.md#云端资源准备)替换模型连接、模型、MCP 和 Skill 名称。以下代码在使用 `AsyncAgentCore` 的异步函数中运行，`core` 为已初始化的 SDK 实例。
+按[云端资源准备](../examples/README.md#云端资源准备)配置资源并替换示例名称。代码中的 `core` 是异步函数中已初始化的 `AsyncAgentCore` 实例。
 
 ```python
 from pydantic_ai import Agent

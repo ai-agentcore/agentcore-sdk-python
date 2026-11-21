@@ -4,7 +4,7 @@
 python -m pip install "alibabacloud-agentcore-sdk[mcp,google-adk]"
 ```
 
-按[云端资源准备](../examples/README.md#云端资源准备)替换模型连接、模型、MCP 和 Skill 名称。以下代码在使用 `AsyncAgentCore` 的异步函数中运行，`core` 为已初始化的 SDK 实例。
+按[云端资源准备](../examples/README.md#云端资源准备)配置资源并替换示例名称。代码中的 `core` 是异步函数中已初始化的 `AsyncAgentCore` 实例。
 
 ```python
 from google.adk.agents import Agent
@@ -20,7 +20,7 @@ agent = Agent(
 )
 ```
 
-用 ADK 的会话服务创建会话，将 `agent` 和会话服务传给 `Runner`，再通过 `runner.run_async(...)` 读取响应事件。可在仓库根目录运行 [Google ADK 示例](../examples/frameworks/google_adk_agent.py)。
+按[完整示例](../examples/frameworks/google_adk_agent.py)创建会话和 `Runner`，再通过 `runner.run_async(...)` 读取响应。在仓库根目录运行示例。
 
 ```bash
 python -m examples.frameworks.google_adk_agent
