@@ -26,6 +26,7 @@ from agentcore.controlplane import AgentCoreControlPlane
 from agentcore.controlplane.client import _normalize_endpoint as _normalize_control_plane_endpoint
 from agentcore.errors import ResourceNotConfiguredError
 from agentcore.integrations.common import Tool
+from agentcore.knowledge_base import AsyncKnowledgeBase, KnowledgeBase
 from agentcore.mcp import AsyncMCPClient
 from agentcore.mcp._headers import merge_mcp_headers
 from agentcore.mcp.client import HeadersProvider as MCPHeadersProvider
@@ -120,6 +121,8 @@ class AsyncCoreProtocol(Protocol):
     ) -> Any: ...
 
     def direct_mcp(self, **kwargs: Any) -> Any: ...
+
+    def knowledge_base(self, knowledge_base_id: str) -> AsyncKnowledgeBase: ...
 
     def memory_store(self, memory_store_name: str) -> Any: ...
 
@@ -436,6 +439,17 @@ class AsyncAgentCore:
         self._direct_mcp_clients.append(client)
         logger.info("agentcore.client.direct_mcp.created transport=%s", transport)
         return client
+
+    def knowledge_base(self, knowledge_base_id: str) -> AsyncKnowledgeBase:
+        self._ensure_open()
+        return AsyncKnowledgeBase(knowledge_base_id, self._knowledge_base_provider)
+
+    async def _knowledge_base_provider(self) -> AgentCoreControlPlane:
+        self._ensure_open()
+        await self._ensure_resource_context()
+        if self._control_plane is None:
+            raise ResourceNotConfiguredError("AgentCore control-plane runtime is not configured")
+        return self._control_plane
 
     def memory_store(self, memory_store_name: str) -> AsyncMemoryStore:
         self._ensure_open()
@@ -770,6 +784,11 @@ class AgentCore:
                 self._portal_required(),
                 self._operation,
             )
+
+    def knowledge_base(self, knowledge_base_id: str) -> KnowledgeBase:
+        with self._lock:
+            client = self._get().knowledge_base(knowledge_base_id)
+            return KnowledgeBase(client, self._portal_required(), self._operation)
 
     def memory_store(self, memory_store_name: str) -> _SyncMemoryStore:
         with self._lock:
