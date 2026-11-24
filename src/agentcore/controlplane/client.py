@@ -322,6 +322,34 @@ class AgentCoreControlPlane:
                 )
         return TemplateArtifact(version, archive)
 
+    async def search_knowledge_base(
+        self, knowledge_base_id: str, body: Mapping[str, Any],
+    ) -> Mapping[str, Any]:
+        client = await self._client()
+        params = openapi_utils.Params(
+            action="SearchKnowledgeBase", version="2026-08-04", protocol="HTTPS",
+            pathname=(f"/workspaces/{quote(self.workspace_id, safe='')}/knowledge-bases/"
+                      f"{quote(knowledge_base_id, safe='')}/search"),
+            method="POST", auth_type="AK", style="ROA", req_body_type="json", body_type="json",
+        )
+        response = await self._request(
+            client, "SearchKnowledgeBase",
+            lambda: client.call_api_async(
+                params, openapi_utils.OpenApiRequest(body=dict(body)),
+                RuntimeOptions(autoretry=False, connect_timeout=10000, read_timeout=60000),
+            ),
+        )
+        result = _field(response, "body")
+        if _field(result, "success") is False:
+            message = (f"SearchKnowledgeBase failed: code={_field(result, 'code')} "
+                       f"request_id={_field(result, 'requestId')}")
+            logger.warning("agentcore.knowledge_base.search.failed %s", message)
+            raise InvocationError(message)
+        data = _field(result, "data")
+        if not isinstance(data, Mapping):
+            raise InvocationError("SearchKnowledgeBase returned invalid data")
+        return data
+
     async def resolve_credential(self, name: str) -> CredentialMetadata:
         client = await self._client()
         params = openapi_utils.Params(
