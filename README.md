@@ -19,6 +19,7 @@
 | 配置 MCP 凭证与固定 Header | [凭证与 Header](#凭证与-mcp-header) |
 | 接入已有 Agent 框架 | [框架集成](#框架集成) |
 | 将 Agent 发布为 HTTP 服务 | [服务协议](#提供-agent-服务) |
+| 为业务参数使用驼峰 JSON 字段 | [业务数据模型](#业务数据模型) |
 
 ## 功能
 
@@ -321,6 +322,31 @@ uvicorn examples.langchain_server:server --host 0.0.0.0 --port 8080 --log-level 
 示例使用 OpenAI/v1 模型连接，每次处理最新一条用户文本，不保存会话历史。AG-UI/OpenAI 请求及预期输出见 [调用 Agent 服务](examples/README.md#调用-agent-服务)。
 
 框架执行流应使用对应的[事件转换器](examples/frameworks/execution-events.md)，不要只提取文本。AG-UI 可表达消息边界、工具调用和工具结果；OpenAI Chat Completions 按其标准表达文本和工具调用，不提供独立的工具结果流式事件。会话历史的保存与恢复仍由应用或所用框架负责。
+
+## 业务数据模型
+
+需要在 Python 中使用下划线字段名、在 JSON 中使用驼峰字段名时，可以继承 SDK 的 `BaseModel`：
+
+```python
+from agentcore import BaseModel
+
+
+class CharacterRequest(BaseModel):
+    character_id: str
+
+
+request = CharacterRequest.model_validate({"characterId": "alice"})
+print(request.character_id)                  # alice
+print(request.model_dump())                  # {"characterId": "alice"}
+print(request.model_dump_json())             # {"characterId":"alice"}
+print(request.model_dump(by_alias=False))    # {"character_id": "alice"}
+```
+
+也可以用 `CharacterRequest(character_id="alice")` 创建对象。用 Pydantic 的 `Field(alias="...")` 指定别名时，显式别名优先。两种名称同时传入时，别名值优先。
+
+嵌套模型需要同样继承此基类才能应用相同约定；普通字典的键保持原样。此能力需主动使用，不会自动转换 `AgentCoreServer` 的原始请求。处理自定义参数时，在业务入口对相应数据调用 `model_validate()`。完整示例见 [业务数据模型](examples/business_models.py)。
+
+作为 LangChain／LangGraph 工具的 `args_schema` 时，在参数模型上设置 `model_config = ConfigDict(serialize_by_alias=False)`，使工具按 Python 字段名传参。完整用法见 [自定义工具参数](docs/langchain.md#自定义工具参数)。
 
 ## 使用提示
 
