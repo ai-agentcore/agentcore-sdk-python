@@ -1,8 +1,10 @@
 # Release notes
 
-## Unreleased
+## SDK 0.1.11 — 2026-11-26
 
+- 支持检索 AgentCore 原生知识库，并提供同步、异步调用与框架工具适配。
 - 新增可选的 `agentcore.BaseModel`，支持业务模型按下划线字段名或驼峰别名输入，默认按驼峰别名序列化，并支持显式别名和 Pydantic 配置覆盖。
+- 补充 LangChain／LangGraph 自定义工具参数模型示例与回归测试。
 
 ## SDK 0.1.10 — 2026-11-19
 
