@@ -31,6 +31,43 @@ print(result["messages"][-1].content)
 python -m examples.frameworks.langchain_agent
 ```
 
+## 自定义工具参数
+
+使用 `agentcore.BaseModel` 定义 LangChain／LangGraph 工具的 `args_schema` 时，设置 `serialize_by_alias=False`，使工具按 Python 字段名传参；输入仍支持下划线字段名和驼峰别名。
+
+```python
+from langchain_core.tools import tool
+from pydantic import ConfigDict
+
+from agentcore import BaseModel
+
+
+class CharacterArgs(BaseModel):
+    model_config = ConfigDict(serialize_by_alias=False)
+
+    character_id: str
+
+
+@tool(args_schema=CharacterArgs)
+def describe_character(character_id: str) -> str:
+    """返回指定的角色标识。"""
+    return f"Character: {character_id}"
+
+
+print(describe_character.invoke({"characterId": "alice"}))
+print(describe_character.invoke({"character_id": "bob"}))
+```
+
+将 `describe_character` 加入 `create_agent` 或 `ToolNode` 的工具列表即可使用。需要向外输出驼峰 JSON 时，仍可对参数模型调用 `model_dump(by_alias=True)`。
+
+此配置仅作用于该工具参数模型；其他业务模型继续默认输出驼峰。示例无需云端资源，安装 `alibabacloud-agentcore-sdk[langchain]` 后，在仓库根目录运行：
+
+```bash
+python -m examples.frameworks.langchain_tool_model
+```
+
+完整代码见 [工具参数模型示例](../examples/frameworks/langchain_tool_model.py)。
+
 ## LangGraph
 
 ```bash

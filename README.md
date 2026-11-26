@@ -346,6 +346,8 @@ print(request.model_dump(by_alias=False))    # {"character_id": "alice"}
 
 嵌套模型需要同样继承此基类才能应用相同约定；普通字典的键保持原样。此能力需主动使用，不会自动转换 `AgentCoreServer` 的原始请求。处理自定义参数时，在业务入口对相应数据调用 `model_validate()`。完整示例见 [业务数据模型](examples/business_models.py)。
 
+作为 LangChain／LangGraph 工具的 `args_schema` 时，在参数模型上设置 `model_config = ConfigDict(serialize_by_alias=False)`，使工具按 Python 字段名传参。完整用法见 [自定义工具参数](docs/langchain.md#自定义工具参数)。
+
 ## 使用提示
 
 `AgentCoreServer` 在当前执行上下文中保留入站网关设置的 `X-AgentCore-Accessor-WAT`。
