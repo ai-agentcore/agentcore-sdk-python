@@ -29,6 +29,7 @@
 
 | 示例 | 所需 extras | 运行命令 |
 | --- | --- | --- |
+| [业务数据模型](business_models.py)（纯本地，无需云端资源） | 无 | `python -m examples.business_models` |
 | [原生知识库检索](knowledge_base.py) | 无 | `python -m examples.knowledge_base` |
 | [云端资源](cloud_resources.py) | `mcp` | `python -m examples.cloud_resources` |
 | [Agent 模版与 LangChain](agent_template.py) | `langchain` | `python -m examples.agent_template` |

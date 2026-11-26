@@ -1,5 +1,9 @@
 # Release notes
 
+## Unreleased
+
+- 新增可选的 `agentcore.BaseModel`，支持业务模型按下划线字段名或驼峰别名输入，默认按驼峰别名序列化，并支持显式别名和 Pydantic 配置覆盖。
+
 ## SDK 0.1.10 — 2026-11-19
 
 - 高代码本地调试支持省略 `matrixUrl` 的调试 Token。模型和 MCP 可继续使用平台网关，已有携带 Matrix 地址的纳管 Token 仍可使用。
